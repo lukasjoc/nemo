@@ -15,15 +15,22 @@ func Load(asset Asset) []string {
 	return tiles
 }
 
-var Normie Asset = `
-   __
- \/ @\
- /\__/
+var NormieR Asset = `
+  __
+\/ @\
+/\__/
 `
+
+var NormieL Asset = `
+ __
+/@ \/
+\__/\
+`
+
 
 var Other Asset = `
           \:. 
- \;,   ,;\\\\\,, 
+  \;,   ,;\\\\\,, 
    \\\\\;;:::::::o 
    ///;;::::::::< 
   /;   \/////// 
