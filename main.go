@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"time"
 
 	"github.com/gdamore/tcell"
@@ -9,19 +8,27 @@ import (
 )
 
 func drawShape(sc tcell.Screen, shape []string, x int, y int, style tcell.Style) {
-	start := x
+	sx := x
 	for _, tile := range shape {
 		if len(tile) == 0 {
 			continue
 		}
 		for _, r := range tile {
-			sc.SetContent(start-1, y, ' ', nil, style)
+			sc.SetContent(sx-1, y, ' ', nil, style)
+			sc.SetContent(sx+len(tile), y, ' ', nil, style)
 			sc.SetContent(x, y, r, nil, style)
 			x++
 		}
-		x = start
+		x = sx
 		y++
 	}
+}
+
+type layer struct {
+	x     int
+	y     int
+	shape []string
+	velo  int
 }
 
 func main() {
@@ -33,13 +40,8 @@ func main() {
 		panic(err)
 	}
 
-	defStyle := tcell.StyleDefault.
-		Background(tcell.ColorBlack).
-		Foreground(tcell.ColorWhite)
-	sc.SetStyle(defStyle)
+	sc.SetStyle(tcell.StyleDefault)
 	sc.Clear()
-
-	normie := strings.Split(assets.Normie, "\n")
 
 	quit := func() {
 		p := recover()
@@ -50,34 +52,28 @@ func main() {
 	}
 	defer quit()
 
-	go func() {
-		dx := 10
-		dy := 20
-		for {
-			drawShape(sc, normie, dx, dy, defStyle)
-			sc.Show()
-			w, _ := sc.Size()
-			if dx+1 > w {
-				break
-			}
-			dx += 1
-			time.Sleep(time.Millisecond * 100)
-		}
-	}()
+	normie := assets.Load(assets.Other)
+	layers := []*layer{}
 
+	w, _ := sc.Size()
+	// l := layer{x: 0, y: 0, shape: normie, velo: 1}
+	for i := 0; i < 35; i += 7 {
+		l := layer{x: 0, y: i, shape: normie, velo: 2}
+		layers = append(layers, &l)
+	}
+	for i := 0; i < 35; i += 7 {
+		l := layer{x: w - 5, y: i, shape: normie, velo: -1}
+		layers = append(layers, &l)
+	}
 
 	go func() {
-		dx := 0
-		dy := 0
 		for {
-			drawShape(sc, normie, dx, dy, defStyle)
-			sc.Show()
-			w, _ := sc.Size()
-			if dx+1 > w {
-				break
+			for _, l := range layers {
+				drawShape(sc, l.shape, l.x, l.y, tcell.StyleDefault.Foreground(tcell.ColorLightCyan))
+				l.x += l.velo
 			}
-			dx++
-			time.Sleep(time.Millisecond * 300)
+			sc.Show()
+			time.Sleep(time.Millisecond * 120)
 		}
 	}()
 
