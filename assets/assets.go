@@ -1,7 +1,6 @@
 package assets
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -9,9 +8,6 @@ type Asset = string
 
 func Load(asset Asset) []string {
 	tiles := strings.Split(asset, "\n")
-	for _, tile := range tiles {
-		tile = fmt.Sprintf(` %s `, tile)
-	}
 	return tiles
 }
 
@@ -27,13 +23,12 @@ var NormieL Asset = `
 \__/\
 `
 
-
 var Other Asset = `
-          \:. 
-  \;,   ,;\\\\\,, 
-   \\\\\;;:::::::o 
-   ///;;::::::::< 
-  /;   \/////// 
+          :.
+\;,   ,;\\\\\,_,
+ \\\\\;;:::::::0|
+ ///;;::::::::</
+/;    \///////
 `
 
 var Invader Asset = `
