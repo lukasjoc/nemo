@@ -4,12 +4,38 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"slices"
 	"time"
 	"unicode"
 
 	"github.com/gdamore/tcell"
 	"github.com/lukasjoc/nemo/assets"
 )
+
+type message uint
+
+const (
+	renderStart message = iota
+	renderPause
+	renderHalt
+)
+
+const renderTickDelay = time.Millisecond * 120
+
+var (
+	fgCyan    = tcell.StyleDefault.Foreground(tcell.ColorLightCyan)
+	fgRed     = tcell.StyleDefault.Foreground(tcell.ColorRed)
+	fgGreen   = tcell.StyleDefault.Foreground(tcell.ColorGreen)
+	fgYellow  = tcell.StyleDefault.Foreground(tcell.ColorYellow)
+	fgOrange  = tcell.StyleDefault.Foreground(tcell.ColorOrange)
+	fgPurple  = tcell.StyleDefault.Foreground(tcell.ColorPurple)
+	fgPallete = []tcell.Style{fgCyan, fgRed, fgGreen, fgYellow, fgOrange,
+		fgPurple}
+	fgPalleteSize = len(fgPallete)
+)
+
+var screenMargin = 15
+var initialSwarmSize = 45
 
 type layer struct {
 	id      int64
@@ -52,91 +78,64 @@ func drawLayer(sc tcell.Screen, l layer) {
 	}
 }
 
-type message uint
-
-const (
-	renderStart message = iota
-	renderPause
-	renderHalt
-)
-
-const renderTickDelay = time.Millisecond * 120
-
-var (
-	fgCyan    = tcell.StyleDefault.Foreground(tcell.ColorLightCyan)
-	fgRed     = tcell.StyleDefault.Foreground(tcell.ColorRed)
-	fgGreen   = tcell.StyleDefault.Foreground(tcell.ColorGreen)
-	fgYellow  = tcell.StyleDefault.Foreground(tcell.ColorYellow)
-	fgOrange  = tcell.StyleDefault.Foreground(tcell.ColorOrange)
-	fgPurple  = tcell.StyleDefault.Foreground(tcell.ColorPurple)
-	fgPallete = []tcell.Style{fgCyan, fgRed, fgGreen, fgYellow, fgOrange,
-		fgPurple}
-	fgPalleteSize = len(fgPallete)
-)
-
-var screenMargin = 15
-
 func randomFish() ([]assets.Tiles, error) {
+	// TODO: shouldnt load them everytime (cache them somehow in a package var)
 	a := []assets.Tiles{
 		assets.Nemo,
 		assets.NemoJr,
 		assets.Runner,
 		assets.AQ0,
 		assets.AQ1,
+		// TODO: more tiles/fishies
 	}[rand.Intn(5)]
 	return assets.LoadTiles(a)
 }
 
+func choose[T comparable](selection ...T) T {
+	return selection[rand.Intn(len(selection))]
+}
+
 func newRandomWithTiles(tiles assets.Tiles, x int, y int) *layer {
 	return &layer{
-		id:      time.Now().Unix(),
-		x:       x,
-		y:       y,
-		velo:    []int{3, 4, 2, 10, 6, 2, 3, 1, 7, 6, 3, 3}[rand.Intn(3)],
-		style:   fgPallete[rand.Intn(fgPalleteSize)],
+		id: time.Now().Unix(),
+		x:  x,
+		y:  y,
+		// TODO: better way to handle velocity (colission based/dynamic)
+		velo:    choose(3, 4, 2, 10, 6, 2, 3, 1, 7, 6, 3, 3),
+		style:   choose(fgPallete...),
 		tiles:   tiles,
 		visible: true,
 	}
 }
 
-// func randomFishN(liv int, riv int, w int, h int) []*layer {
-// 	batch := []*layer{}
-// 	for i := 0; i < liv; i++ {
-// 		tiles, _ := randomFish()
-// 		x := rand.Intn(w/2-0) + 0
-// 		y := rand.Intn(h - 1)
-// 		l := newRandomWithTiles(tiles[0], x, y, w, h)
-// 		batch = append(batch, l)
-// 	}
-// 	for i := 0; i < riv; i++ {
-// 		tiles, _ := randomFish()
-// 		x := rand.Intn(w-w/2) + w/2
-// 		y := int(rand.Intn(h - 1))
-// 		l := newRandomWithTiles(tiles[1], x, y, w, h)
-// 		batch = append(batch, l)
-// 	}
-// 	return batch
-// }
-
-func setupRandomSwarm(w int, h int) []*layer {
-	layers := []*layer{}
-	swarmCount := 50
-	for i := 0; i < swarmCount; i += 1 {
+func newRandomBatch(w, h int, batchSize int) []*layer {
+	batch := []*layer{}
+	for i := 0; i < batchSize; i++ {
 		tiles, _ := randomFish()
-		// setup swarm coming from the left side
-		//lx := -screenMargin
-		lx := (rand.Intn(screenMargin*8-screenMargin) + screenMargin) * -1
-		ly := rand.Intn(h - 1)
-		left := newRandomWithTiles(tiles[0], lx, ly)
-		// setup swarm coming from the right side
-		// rx := w + screenMargin
-		rx := (rand.Intn(w+screenMargin*8-w+screenMargin) + w + screenMargin)
-		ry := int(rand.Intn(h - 1))
-		right := newRandomWithTiles(tiles[1], rx, ry)
-		right.velo *= -1
-		layers = append(layers, left, right)
+		side := choose(0, 1)
+		// TODO: clean this up (magic variables, ugly AF)
+		var l *layer = nil
+		if side == 0 {
+			// setup swarm coming from the left side
+			lx := (rand.Intn(screenMargin*8-screenMargin) + screenMargin) * -1
+			ly := rand.Intn(h - 1)
+			l = newRandomWithTiles(tiles[0], lx, ly)
+		} else {
+			// setup swarm coming from the right side
+			rx := (rand.Intn(w+screenMargin*8-w+screenMargin) + w + screenMargin)
+			ry := int(rand.Intn(h - 1))
+			l = newRandomWithTiles(tiles[1], rx, ry)
+			// NOTE: make sure to invert the velo to get correct direction
+			// for tiles
+			l.velo *= -1
+		}
+		if l == nil {
+			// unreachable: just for sanity reasons
+			panic("random layer was expected but not generated")
+		}
+		batch = append(batch, l)
 	}
-	return layers
+	return batch
 }
 
 func main() {
@@ -162,12 +161,10 @@ func main() {
 	defer quit()
 
 	w, h := sc.Size()
-	layers := setupRandomSwarm(w-1, h-1)
+	layers := []*layer{}
+	layers = append(layers, newRandomBatch(w-1, h-1, initialSwarmSize)...)
 
 	messages := make(chan message, 1)
-
-	// TODO: remove the offscreen layers
-	// garbage := []struct{ layerId int64 }{}
 
 	render := func(w int, h int) {
 		lastMessage := renderStart
@@ -184,56 +181,28 @@ func main() {
 				if lastMessage == renderPause {
 					continue
 				}
-				// simulate next x values to tell if we need to respawn
-				// for _, l := range layers {
-				// 	nextX := l.x + l.velo
-				// 	if l.velo < 0 && nextX <= 0-offscreenPadding ||
-				// 		l.velo > 0 && nextX >= w+offscreenPadding {
-				// 		// enqueue the layer as garbage
-				// 		garbage = append(garbage, struct {
-				// 			layerId int64
-				// 		}{l.id})
-				// 	}
-				// }
-
-				//for _, g := range garbage {
-				//	layers = slices.DeleteFunc(layers, func(l *layer) bool {
-				//		return l.id == g.layerId
-				//	})
-				//	// TODO: spawn new random one
-				//}
 				// render each layer into the tcell buffer before calling
 				// show to reduce flickering, especially when they collide.
 				for _, l := range layers {
 					drawLayer(sc, *l)
-					// layer is not visible anymore and can be cleaned up
-					// if l.velo > 0 && l.x <= w+screenMargin {
-					// 	l.visible = false
-					// 	liv++
-					// }
-					// if l.velo < 0 && l.x >= -screenMargin {
-					// 	l.visible = false
-					// 	riv++
-					// }
+					if l.velo > 0 && l.x >= w+screenMargin ||
+						l.velo < 0 && l.x < -screenMargin {
+						l.visible = false
+					}
 					l.x += l.velo
 				}
-				// delete the invisible ones
-				// layers = slices.DeleteFunc(layers, func(l *layer) bool {
-				// 	f, err := os.OpenFile("nemo.log", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-				// 	if err != nil {
-				// 		panic(err)
-				// 	}
-				// 	line := fmt.Sprintf("DEL: %d %d\n", l.id, l.visible)
-				// 	if _, err = f.WriteString(line); err != nil {
-				// 		panic(err)
-				// 	}
-				// 	f.Close()
-				// 	return l.visible == false
-				// })
 				sc.Show()
 
-				// layers = append(layers, randomFishN(1, 1, w, h)...)
-
+				// delete the hidden layers before next tick
+				deleted := 0
+				layers = slices.DeleteFunc(layers, func(l *layer) bool {
+					if l.visible == false {
+						deleted++
+						return true
+					}
+					return false
+				})
+				layers = append(layers, newRandomBatch(w-1, h-1, deleted)...)
 				time.Sleep(renderTickDelay)
 			}
 		}

@@ -1,4 +1,4 @@
 # nemo
 
-> swarms of fishies
+> Swarms of fishies
 
