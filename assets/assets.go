@@ -1,72 +1,81 @@
 package assets
 
 import (
+	"errors"
 	"strings"
 )
 
-type Asset = string
-
-func Load(asset Asset) []string {
-	tiles := strings.Split(asset, "\n")
-	return tiles
-}
-
-var NormieR Asset = `
+var Nemo = []string{`
   __
 \/ @\
 /\__/
-`
-
-var NormieL Asset = `
+`, `
  __
 /@ \/
 \__/\
-`
+`,
+}
 
-var Other Asset = `
-          :.
-\;,   ,;\\\\\,_,
- \\\\\;;:::::::0|
- ///;;::::::::</
-/;    \///////
-`
+var NemoJr = []string{`
+  ___
+\/ CC\
+/\__~/
+`, `
+ ___
+/CC \/
+\~__/\
+`,
+}
 
-var Invader Asset = `
-     ;;
->///;;///@(@>
-      ;;;
-`
+var Runner = []string{`
+>(#)@>
+`, `
+<@(#)<
+`,
+}
 
-var Coolio Asset = `
+// INFO: AQ.. are taken from the asciiquarium program
+var AQ0 = []string{`
+       \
+     ...\..,
+\  /'       \
+ >=     (  ' >
+/  \      / /
+    /"'"'/''
+`, `
+      /
+  ,../...
+ /       '\  /
+< '  )     =<
+ \ \      /  \
+  ''\'"'"\
+`,
+}
 
-|\___//^^^/\
-|         00\
-|/---\\\\|/~|
-`
+var AQ1 = []string{`
+    \
+\ /--\
+>=  (o>
+/ \__/
+    /
+`, `
+  /
+ /--\ /
+<o)  =<
+ \__/ \
+  \
+`,
+}
 
-var Nilly Asset = `
- \\    /-\     /-\ 
- \ \---\--\,,,,\,,\,,-@@\ 
- / /---,--,,,,,,,,,,,//~/ 
- //    /,,,/     /,,/ 
-`
+type Tiles []string
 
-var NemoJr Asset = `
-   ___
-|\/ $$\
-|/\__-/
-`
-
-var Happydoo Asset = `
-><;;\#/?_?>
-`
-
-var Runner Asset = `
->(_)@>
-`
-
-var Wave Asset = `
-	~~~~~~~~~~~~~~~~~~~~~~~~ ~~~~~~~~~~~~~~~~~~
-	~~~~~~~~~ ~~~~~~~~~~~~~~~~~~~~~~ ~~~~~~~~~~
-	~~~ ~~~~~~~~~~~~~~~~~ ~~~~~~~~~~~~~~~~~~~~~
-`
+func LoadTiles(a []string) ([]Tiles, error) {
+	tiles := []Tiles{}
+	if len(a) != 2 {
+		return nil, errors.New("invalid asset layout")
+	}
+	for _, vers := range a {
+		tiles = append(tiles, strings.Split(vers, "\n"))
+	}
+	return tiles, nil
+}

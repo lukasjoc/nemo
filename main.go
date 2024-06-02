@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
+	"os"
 	"time"
 	"unicode"
 
@@ -10,11 +12,12 @@ import (
 )
 
 type layer struct {
-	x     int
-	y     int
-	velo  int
-	style tcell.Style
-	shape []string
+	x       int
+	y       int
+	velo    int
+	visible bool
+	style   tcell.Style
+	shape   []string
 }
 
 func drawLayer(sc tcell.Screen, l layer) {
@@ -56,25 +59,67 @@ const (
 	renderHalt
 )
 
-const renderFPS = time.Millisecond * 120
+const renderTickDelay = time.Millisecond * 120
 
 var (
-	fgCyan        = tcell.StyleDefault.Foreground(tcell.ColorRed)
+	fgCyan        = tcell.StyleDefault.Foreground(tcell.ColorLightCyan)
+	fgRed         = tcell.StyleDefault.Foreground(tcell.ColorRed)
 	fgGreen       = tcell.StyleDefault.Foreground(tcell.ColorGreen)
 	fgYellow      = tcell.StyleDefault.Foreground(tcell.ColorYellow)
-	fgPallete     = []tcell.Style{fgCyan, fgGreen, fgYellow}
+	fgPallete     = []tcell.Style{fgCyan, fgRed, fgGreen, fgYellow}
 	fgPalleteSize = len(fgPallete)
 )
+
+func randomFish() ([]assets.Tiles, error) {
+	a := []assets.Tiles{
+		assets.Nemo,
+		assets.NemoJr,
+		assets.Runner,
+		assets.AQ0,
+		assets.AQ1,
+	}[rand.Intn(5)]
+	return assets.LoadTiles(a)
+}
+
+func setupRandomSwarm(w int, h int) []*layer {
+	layers := []*layer{}
+	rand.Seed(time.Now().UnixNano())
+	swarmCount := 25
+	for i := 0; i < swarmCount; i += 1 {
+		tiles, _ := randomFish()
+		// setup swarm coming from the left side
+		left := layer{
+			x:       rand.Intn(w/2-0) + 0,
+			y:       rand.Intn(h - 1),
+			velo:    []int{3, 1, 2}[rand.Intn(3)],
+			style:   fgPallete[rand.Intn(fgPalleteSize)],
+			shape:   tiles[0],
+			visible: true,
+		}
+		// setup swarm coming from the right side
+		right := layer{
+			x:       rand.Intn(w-w/2) + w/2,
+			y:       int(rand.Intn(h - 1)),
+			velo:    []int{-1, -2}[rand.Intn(2)],
+			style:   fgPallete[rand.Intn(fgPalleteSize)],
+			shape:   tiles[1],
+			visible: true,
+		}
+		layers = append(layers, &left, &right)
+	}
+	return layers
+}
 
 func main() {
 	sc, err := tcell.NewScreen()
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "Couldnt create screen: %v\n", err)
+		os.Exit(1)
 	}
 	if err := sc.Init(); err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "Couldnt init tcell: %v\n", err)
+		os.Exit(1)
 	}
-
 	sc.SetStyle(tcell.StyleDefault)
 	sc.Clear()
 
@@ -87,43 +132,16 @@ func main() {
 	}
 	defer quit()
 
-	// normieR := assets.Load(assets.NormieR)
-	other := assets.Load(assets.Other)
-	normieL := assets.Load(assets.NormieL)
-	layers := []*layer{}
-
-	rand.Seed(time.Now().UnixNano())
 	w, h := sc.Size()
-	for i := 0; i < 20; i += 1 {
-		l := layer{
-			x:     rand.Intn(w/2-0) + 0,
-			y:     rand.Intn(h - 1),
-			velo:  []int{3, 1, 2}[rand.Intn(3)],
-			style: fgPallete[rand.Intn(fgPalleteSize)],
-			shape: other,
-		}
-		layers = append(layers, &l)
-	}
-
-	for i := 0; i < 20; i += 1 {
-		l := layer{
-			x:     rand.Intn(w-w/2) + w/2,
-			y:     int(rand.Intn(h - 1)),
-			velo:  []int{-1, -2}[rand.Intn(2)],
-			style: fgPallete[rand.Intn(fgPalleteSize)],
-			shape: normieL,
-		}
-		layers = append(layers, &l)
-	}
+	layers := setupRandomSwarm(w-1, h-1)
 
 	messages := make(chan message, 1)
 
-	render := func() {
+	render := func(w int, h int) {
 		lastMessage := renderStart
 	rendering:
 		for {
 			select {
-			// try to read from the inbox
 			case lastMessage = <-messages:
 			default:
 				// halt the rendering
@@ -138,15 +156,19 @@ func main() {
 				// show to reduce flickering, especially when they collide.
 				for _, l := range layers {
 					drawLayer(sc, *l)
+					if l.velo < 0 && l.x <= 0 ||
+						l.velo > 0 && l.x >= w {
+						l.visible = false
+					}
 					l.x += l.velo
 				}
 				sc.Show()
-				time.Sleep(renderFPS)
+				time.Sleep(renderTickDelay)
 			}
 		}
 	}
 
-	go render()
+	go render(w-1, h-1)
 
 	lastMessage := renderStart
 	for {
@@ -181,3 +203,7 @@ func main() {
 		}
 	}
 }
+
+// TODO:
+// restart rendering on 'r' and when screen resizes
+// add color mask on ascii fishies to make them colorful
