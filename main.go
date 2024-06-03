@@ -280,3 +280,4 @@ func main() {
 // TODO:
 // add color mask on ascii fishies to make them colorful
 // simple cli for average,min,max velocity and refresh rate, monotone etc.
+// make it prettier with more assets in the background
