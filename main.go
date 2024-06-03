@@ -31,20 +31,21 @@ var (
 	fgPurple  = tcell.StyleDefault.Foreground(tcell.ColorPurple)
 	fgPallete = []tcell.Style{fgCyan, fgRed, fgGreen, fgYellow, fgOrange,
 		fgPurple}
-	fgPalleteSize = len(fgPallete)
 )
 
 var screenMargin = 12
+
+// TODO: should be dynamic based on available screen size
 var initialSwarmSize = 25
 
 type layer struct {
-	id      int64
-	x       int
-	y       int
-	velo    int
-	visible bool
-	style   tcell.Style
-	tiles   assets.Tiles
+	id     string
+	x      int
+	y      int
+	velo   int
+	hidden bool
+	style  tcell.Style
+	tiles  assets.Tiles
 }
 
 func drawLayer(sc tcell.Screen, l layer) {
@@ -97,14 +98,13 @@ func choose[T comparable](selection ...T) T {
 
 func newRandomWithTiles(tiles assets.Tiles, x int, y int) *layer {
 	return &layer{
-		id: time.Now().Unix(),
+		id: fmt.Sprintf(`layer-%d`, time.Now().Unix()),
 		x:  x,
 		y:  y,
 		// TODO: better way to handle velocity (colission based/dynamic)
-		velo:    choose(3, 4, 2, 10, 6, 2, 3, 1, 7, 6, 3, 3),
-		style:   choose(fgPallete...),
-		tiles:   tiles,
-		visible: true,
+		velo:  choose(3, 4, 2, 10, 6, 2, 3, 1, 7, 6, 3, 3),
+		style: choose(fgPallete...),
+		tiles: tiles,
 	}
 }
 
@@ -118,12 +118,12 @@ func newRandomBatch(w, h int, batchSize int) []*layer {
 		if side == 0 {
 			// setup swarm coming from the left side
 			lx := (rand.Intn(screenMargin*8-screenMargin) + screenMargin) * -1
-			ly := rand.Intn(h - 1)
+			ly := rand.Intn(+h)
 			l = newRandomWithTiles(tiles[0], lx, ly)
 		} else {
 			// setup swarm coming from the right side
 			rx := (rand.Intn(w+screenMargin*8-w+screenMargin) + w + screenMargin)
-			ry := int(rand.Intn(h - 1))
+			ry := int(rand.Intn(+h))
 			l = newRandomWithTiles(tiles[1], rx, ry)
 			// NOTE: make sure to invert the velo to get correct direction
 			// for tiles
@@ -143,41 +143,38 @@ func render(messages <-chan message, sc tcell.Screen, layers *[]*layer) {
 	sc.Clear()
 loop:
 	for {
-		w, h := sc.Size()
 		select {
 		case lastMessage = <-messages:
-		default:
-			// halt the rendering
-			if lastMessage == renderHalt {
+			if lastMessage == renderPause ||
+				lastMessage == renderHalt {
 				break loop
 			}
-			// pause the rendering
-			// TODO: also quit the loop here and restart
-			if lastMessage == renderPause {
-				continue
-			}
+		default:
+			renderW, renderH := sc.Size()
 			// render each layer into the tcell buffer before calling
 			// show to reduce flickering, especially when they collide.
 			for _, l := range *layers {
 				drawLayer(sc, *l)
-				if l.velo > 0 && l.x >= w+screenMargin ||
+				if l.velo > 0 && l.x >= renderW+screenMargin ||
 					l.velo < 0 && l.x < -screenMargin {
-					l.visible = false
+					l.hidden = true
 				}
 				l.x += l.velo
 			}
+			// show the rendered results
 			sc.Show()
 
-			// delete the hidden layers before next tick
-			deleted := 0
+			// do some cleanup before continuing to next frame
+			hidden := 0
 			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
-				if l.visible == false {
-					deleted++
+				if l.hidden {
+					hidden++
 					return true
 				}
 				return false
 			})
-			*layers = append(*layers, newRandomBatch(w-1, h-1, deleted)...)
+			*layers = append(*layers, newRandomBatch(renderW, renderH, hidden)...)
+			// TODO: should we use a ticker here instead?
 			time.Sleep(renderTickDelay)
 		}
 	}
@@ -218,12 +215,22 @@ func main() {
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			nextW, nextH := ev.Size()
-			t := ev.When().Unix()
-			nemoLog(fmt.Sprintf("RESIZE(%d): REV: %d %d => %d %d\n", t, initW, initH, nextW, nextH))
+			// t := ev.When().Unix()
+			// nemoLog(fmt.Sprintf("RESIZE(%d): REV: %d %d => %d %d\n", t, initW, initH, nextW, nextH))
 			if nextW != initW || nextH != initH {
-				messages <- renderHalt
-				layers = append([]*layer{}, newRandomBatch(initW, initH, initialSwarmSize)...)
-				go render(messages, sc, &layers)
+				if lastMessage != renderStart {
+					layers = append([]*layer{}, newRandomBatch(nextW, nextH, initialSwarmSize)...)
+					go render(messages, sc, &layers)
+					lastMessage = renderStart
+					continue
+				}
+				select {
+				case messages <- renderHalt:
+					layers = append([]*layer{}, newRandomBatch(nextW, nextH, initialSwarmSize)...)
+					go render(messages, sc, &layers)
+					lastMessage = renderStart
+				default:
+				}
 			}
 			sc.Sync()
 		case *tcell.EventKey:
@@ -234,26 +241,33 @@ func main() {
 			if ev.Key() == tcell.KeyRune {
 				switch ev.Rune() {
 				case 'p':
-					nextMessage := renderPause
+					// continue where left off
 					if lastMessage == renderPause {
-						nextMessage = renderStart
+						go render(messages, sc, &layers)
+						lastMessage = renderStart
+						continue
 					}
-					select {
-					case messages <- nextMessage:
-						lastMessage = nextMessage
-					default:
+					// stop the renderer but keep screen and layers intact
+					if lastMessage == renderStart {
+						select {
+						case messages <- renderPause:
+							lastMessage = renderPause
+						default:
+						}
 					}
 				case 'r':
+					if lastMessage != renderStart {
+						continue
+					}
 					select {
 					case messages <- renderHalt:
-						lastMessage = renderHalt
-						t := ev.When().Unix()
-						name := ev.Name()
+						// t := ev.When().Unix()
+						// name := ev.Name()
 						evW, evH := sc.Size()
-						nemoLog(fmt.Sprintf("KEY(%s, %d, %d): %d %d\n", name, t, evW, evH))
-						messages <- renderHalt
+						// nemoLog(fmt.Sprintf("KEY(%s, %d): %d %d\n", name, t, evW, evH))
 						layers = append([]*layer{}, newRandomBatch(evW, evH, initialSwarmSize)...)
 						go render(messages, sc, &layers)
+						lastMessage = renderStart
 						sc.Sync()
 					default:
 					}
