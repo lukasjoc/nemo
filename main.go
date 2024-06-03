@@ -34,8 +34,8 @@ var (
 	fgPalleteSize = len(fgPallete)
 )
 
-var screenMargin = 15
-var initialSwarmSize = 45
+var screenMargin = 12
+var initialSwarmSize = 25
 
 type layer struct {
 	id      int64
@@ -138,6 +138,51 @@ func newRandomBatch(w, h int, batchSize int) []*layer {
 	return batch
 }
 
+func render(messages <-chan message, sc tcell.Screen, layers *[]*layer) {
+	lastMessage := renderStart
+	sc.Clear()
+loop:
+	for {
+		w, h := sc.Size()
+		select {
+		case lastMessage = <-messages:
+		default:
+			// halt the rendering
+			if lastMessage == renderHalt {
+				break loop
+			}
+			// pause the rendering
+			// TODO: also quit the loop here and restart
+			if lastMessage == renderPause {
+				continue
+			}
+			// render each layer into the tcell buffer before calling
+			// show to reduce flickering, especially when they collide.
+			for _, l := range *layers {
+				drawLayer(sc, *l)
+				if l.velo > 0 && l.x >= w+screenMargin ||
+					l.velo < 0 && l.x < -screenMargin {
+					l.visible = false
+				}
+				l.x += l.velo
+			}
+			sc.Show()
+
+			// delete the hidden layers before next tick
+			deleted := 0
+			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
+				if l.visible == false {
+					deleted++
+					return true
+				}
+				return false
+			})
+			*layers = append(*layers, newRandomBatch(w-1, h-1, deleted)...)
+			time.Sleep(renderTickDelay)
+		}
+	}
+}
+
 func main() {
 	sc, err := tcell.NewScreen()
 	if err != nil {
@@ -160,64 +205,30 @@ func main() {
 	}
 	defer quit()
 
-	w, h := sc.Size()
+	initW, initH := sc.Size()
 	layers := []*layer{}
-	layers = append(layers, newRandomBatch(w-1, h-1, initialSwarmSize)...)
+	layers = append(layers, newRandomBatch(initW, initH, initialSwarmSize)...)
 
 	messages := make(chan message, 1)
-
-	render := func(w int, h int) {
-		lastMessage := renderStart
-	rendering:
-		for {
-			select {
-			case lastMessage = <-messages:
-			default:
-				// halt the rendering
-				if lastMessage == renderHalt {
-					break rendering
-				}
-				// pause the rendering
-				if lastMessage == renderPause {
-					continue
-				}
-				// render each layer into the tcell buffer before calling
-				// show to reduce flickering, especially when they collide.
-				for _, l := range layers {
-					drawLayer(sc, *l)
-					if l.velo > 0 && l.x >= w+screenMargin ||
-						l.velo < 0 && l.x < -screenMargin {
-						l.visible = false
-					}
-					l.x += l.velo
-				}
-				sc.Show()
-
-				// delete the hidden layers before next tick
-				deleted := 0
-				layers = slices.DeleteFunc(layers, func(l *layer) bool {
-					if l.visible == false {
-						deleted++
-						return true
-					}
-					return false
-				})
-				layers = append(layers, newRandomBatch(w-1, h-1, deleted)...)
-				time.Sleep(renderTickDelay)
-			}
-		}
-	}
-
-	go render(w-1, h-1)
+	go render(messages, sc, &layers)
 
 	lastMessage := renderStart
 	for {
 		ev := sc.PollEvent()
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
+			nextW, nextH := ev.Size()
+			t := ev.When().Unix()
+			nemoLog(fmt.Sprintf("RESIZE(%d): REV: %d %d => %d %d\n", t, initW, initH, nextW, nextH))
+			if nextW != initW || nextH != initH {
+				messages <- renderHalt
+				layers = append([]*layer{}, newRandomBatch(initW, initH, initialSwarmSize)...)
+				go render(messages, sc, &layers)
+			}
 			sc.Sync()
 		case *tcell.EventKey:
-			if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
+			if ev.Key() == tcell.KeyEscape ||
+				ev.Key() == tcell.KeyCtrlC {
 				return
 			}
 			if ev.Key() == tcell.KeyRune {
@@ -232,10 +243,18 @@ func main() {
 						lastMessage = nextMessage
 					default:
 					}
-				case 'h':
+				case 'r':
 					select {
 					case messages <- renderHalt:
 						lastMessage = renderHalt
+						t := ev.When().Unix()
+						name := ev.Name()
+						evW, evH := sc.Size()
+						nemoLog(fmt.Sprintf("KEY(%s, %d, %d): %d %d\n", name, t, evW, evH))
+						messages <- renderHalt
+						layers = append([]*layer{}, newRandomBatch(evW, evH, initialSwarmSize)...)
+						go render(messages, sc, &layers)
+						sc.Sync()
 					default:
 					}
 				}
@@ -245,6 +264,5 @@ func main() {
 }
 
 // TODO:
-// restart rendering on 'r' and when screen resizes
 // add color mask on ascii fishies to make them colorful
 // simple cli for average,min,max velocity and refresh rate, monotone etc.
