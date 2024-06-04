@@ -1,9 +1,16 @@
-package main
+package internal
 
-import "os"
+import (
+	"math/rand"
+	"os"
+)
+
+func Choose[T any](selection ...T) T {
+	return selection[rand.Intn(len(selection))]
+}
 
 // TODO: convert to use slog
-func nemoLog(log string) {
+func Log(log string) {
 	f, err := os.OpenFile("nemo.log", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 	if err != nil {
 		panic(err)

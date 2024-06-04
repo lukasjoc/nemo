@@ -9,7 +9,8 @@ import (
 	"unicode"
 
 	"github.com/gdamore/tcell"
-	"github.com/lukasjoc/nemo/assets"
+	"github.com/lukasjoc/nemo/internal"
+	"github.com/lukasjoc/nemo/internal/assets"
 )
 
 type message uint
@@ -45,7 +46,7 @@ type layer struct {
 	velo   int
 	hidden bool
 	style  tcell.Style
-	tiles  assets.Tiles
+	tiles  []string
 }
 
 func drawLayer(sc tcell.Screen, l layer) {
@@ -79,31 +80,14 @@ func drawLayer(sc tcell.Screen, l layer) {
 	}
 }
 
-func randomFish() ([]assets.Tiles, error) {
-	// TODO: shouldnt load them everytime (cache them somehow in a package var)
-	a := []assets.Tiles{
-		assets.Nemo,
-		assets.NemoJr,
-		assets.Runner,
-		assets.AQ0,
-		assets.AQ1,
-		// TODO: more tiles/fishies
-	}[rand.Intn(5)]
-	return assets.LoadTiles(a)
-}
-
-func choose[T comparable](selection ...T) T {
-	return selection[rand.Intn(len(selection))]
-}
-
-func newRandomWithTiles(tiles assets.Tiles, x int, y int) *layer {
+func newRandomWithTiles(tiles []string, x int, y int) *layer {
 	return &layer{
 		id: fmt.Sprintf(`layer-%d`, time.Now().Unix()),
 		x:  x,
 		y:  y,
 		// TODO: better way to handle velocity (colission based/dynamic)
-		velo:  choose(3, 4, 2, 10, 6, 2, 3, 1, 7, 6, 3, 3),
-		style: choose(fgPallete...),
+		velo:  internal.Choose(3, 4, 2, 10, 6, 2, 3, 1, 7, 6, 3, 3),
+		style: internal.Choose(fgPallete...),
 		tiles: tiles,
 	}
 }
@@ -111,20 +95,20 @@ func newRandomWithTiles(tiles assets.Tiles, x int, y int) *layer {
 func newRandomBatch(w, h int, batchSize int) []*layer {
 	batch := []*layer{}
 	for i := 0; i < batchSize; i++ {
-		tiles, _ := randomFish()
-		side := choose(0, 1)
+		asset := assets.Random()
+		side := internal.Choose(0, 1)
 		// TODO: clean this up (magic variables, ugly AF)
 		var l *layer = nil
 		if side == 0 {
 			// setup swarm coming from the left side
 			lx := (rand.Intn(screenMargin*8-screenMargin) + screenMargin) * -1
 			ly := rand.Intn(+h)
-			l = newRandomWithTiles(tiles[0], lx, ly)
+			l = newRandomWithTiles(asset.Sources[0], lx, ly)
 		} else {
 			// setup swarm coming from the right side
 			rx := (rand.Intn(w+screenMargin*8-w+screenMargin) + w + screenMargin)
 			ry := int(rand.Intn(+h))
-			l = newRandomWithTiles(tiles[1], rx, ry)
+			l = newRandomWithTiles(asset.Sources[1], rx, ry)
 			// NOTE: make sure to invert the velo to get correct direction
 			// for tiles
 			l.velo *= -1
@@ -216,7 +200,7 @@ func main() {
 		case *tcell.EventResize:
 			nextW, nextH := ev.Size()
 			// t := ev.When().Unix()
-			// nemoLog(fmt.Sprintf("RESIZE(%d): REV: %d %d => %d %d\n", t, initW, initH, nextW, nextH))
+			// internal.Log(fmt.Sprintf("RESIZE(%d): REV: %d %d => %d %d\n", t, initW, initH, nextW, nextH))
 			if nextW != initW || nextH != initH {
 				if lastMessage != renderStart {
 					layers = append([]*layer{}, newRandomBatch(nextW, nextH, initialSwarmSize)...)
@@ -264,7 +248,7 @@ func main() {
 						// t := ev.When().Unix()
 						// name := ev.Name()
 						evW, evH := sc.Size()
-						// nemoLog(fmt.Sprintf("KEY(%s, %d): %d %d\n", name, t, evW, evH))
+						// internal.Log(fmt.Sprintf("KEY(%s, %d): %d %d\n", name, t, evW, evH))
 						layers = append([]*layer{}, newRandomBatch(evW, evH, initialSwarmSize)...)
 						go render(messages, sc, &layers)
 						lastMessage = renderStart
@@ -279,5 +263,5 @@ func main() {
 
 // TODO:
 // add color mask on ascii fishies to make them colorful
-// simple cli for average,min,max velocity and refresh rate, monotone etc.
 // make it prettier with more assets in the background
+// simple cli for average,min,max velocity and refresh rate, monotone etc.
