@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"os/signal"
 	"slices"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -24,20 +26,32 @@ const (
 const renderTickDelay = time.Millisecond * 120
 
 var (
-	fgCyan    = tcell.StyleDefault.Foreground(tcell.ColorLightCyan)
-	fgRed     = tcell.StyleDefault.Foreground(tcell.ColorRed)
-	fgGreen   = tcell.StyleDefault.Foreground(tcell.ColorGreen)
-	fgYellow  = tcell.StyleDefault.Foreground(tcell.ColorYellow)
-	fgOrange  = tcell.StyleDefault.Foreground(tcell.ColorOrange)
-	fgPurple  = tcell.StyleDefault.Foreground(tcell.ColorPurple)
-	fgPallete = []tcell.Style{fgCyan, fgRed, fgGreen, fgYellow, fgOrange,
-		fgPurple}
+	fgPallete = []tcell.Style{
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorOrchid),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleGoldenrod),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleGreen),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleTurquoise),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleVioletRed),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPapayaWhip),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPeachPuff),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightBlue),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightCoral),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightCyan),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightGoldenrodYellow),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightGray),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightGreen),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightPink),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSalmon),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSeaGreen),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSkyBlue),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSlateGray),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSteelBlue),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightYellow),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLimeGreen),
+	}
 )
 
-var screenMargin = 12
-
-// TODO: should be dynamic based on available screen size
-var initialSwarmSize = 25
+var initialSwarmSize = 32
 
 type layer struct {
 	id     string
@@ -46,6 +60,7 @@ type layer struct {
 	velo   int
 	hidden bool
 	style  tcell.Style
+	asset  assets.Asset
 	tiles  []string
 }
 
@@ -80,15 +95,15 @@ func drawLayer(sc tcell.Screen, l layer) {
 	}
 }
 
-func newRandomWithTiles(tiles []string, x int, y int) *layer {
+func newRandomWithTiles(asset assets.Asset, assetIndex int, x int, y int) *layer {
 	return &layer{
-		id: fmt.Sprintf(`layer-%d`, time.Now().Unix()),
-		x:  x,
-		y:  y,
-		// TODO: better way to handle velocity (colission based/dynamic)
-		velo:  internal.Choose(3, 4, 2, 10, 6, 2, 3, 1, 7, 6, 3, 3),
+		id:    fmt.Sprintf(`layer-%d`, time.Now().Unix()),
+		x:     x,
+		y:     y,
+		velo:  internal.Choose(5, 4, 3, 1, 2, 6),
 		style: internal.Choose(fgPallete...),
-		tiles: tiles,
+		asset: asset,
+		tiles: asset.Sources[assetIndex],
 	}
 }
 
@@ -97,20 +112,20 @@ func newRandomBatch(w, h int, batchSize int) []*layer {
 	for i := 0; i < batchSize; i++ {
 		asset := assets.Random()
 		side := internal.Choose(0, 1)
-		// TODO: clean this up (magic variables, ugly AF)
 		var l *layer = nil
 		if side == 0 {
 			// setup swarm coming from the left side
-			lx := (rand.Intn(screenMargin*8-screenMargin) + screenMargin) * -1
-			ly := rand.Intn(+h)
-			l = newRandomWithTiles(asset.Sources[0], lx, ly)
+			assetIndex := 0
+			lx := (rand.Intn((asset.Width*8)-asset.Width) + asset.Width) * -1
+			ly := rand.Intn(h - asset.Height)
+			l = newRandomWithTiles(asset, assetIndex, lx, ly)
 		} else {
 			// setup swarm coming from the right side
-			rx := (rand.Intn(w+screenMargin*8-w+screenMargin) + w + screenMargin)
-			ry := int(rand.Intn(+h))
-			l = newRandomWithTiles(asset.Sources[1], rx, ry)
-			// NOTE: make sure to invert the velo to get correct direction
-			// for tiles
+			assetIndex := 1
+			rx := (rand.Intn((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width)
+			ry := rand.Intn(h - asset.Height)
+			l = newRandomWithTiles(asset, assetIndex, rx, ry)
+			// NOTE: make sure to invert the velo to get correct direction for tiles
 			l.velo *= -1
 		}
 		if l == nil {
@@ -139,8 +154,8 @@ loop:
 			// show to reduce flickering, especially when they collide.
 			for _, l := range *layers {
 				drawLayer(sc, *l)
-				if l.velo > 0 && l.x >= renderW+screenMargin ||
-					l.velo < 0 && l.x < -screenMargin {
+				if l.velo > 0 && l.x >= renderW+l.asset.Width ||
+					l.velo < 0 && l.x < -l.asset.Width {
 					l.hidden = true
 				}
 				l.x += l.velo
@@ -158,7 +173,6 @@ loop:
 				return false
 			})
 			*layers = append(*layers, newRandomBatch(renderW, renderH, hidden)...)
-			// TODO: should we use a ticker here instead?
 			time.Sleep(renderTickDelay)
 		}
 	}
@@ -185,6 +199,14 @@ func main() {
 		}
 	}
 	defer quit()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		quit()
+		os.Exit(0)
+	}()
 
 	initW, initH := sc.Size()
 	layers := []*layer{}
@@ -262,6 +284,6 @@ func main() {
 }
 
 // TODO:
-// add color mask on ascii fishies to make them colorful
+// bubbles
 // make it prettier with more assets in the background
 // simple cli for average,min,max velocity and refresh rate, monotone etc.

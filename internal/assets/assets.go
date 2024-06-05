@@ -10,6 +10,8 @@ import (
 type Asset struct {
 	Name    string
 	Sources [][]string
+	Width   int
+	Height  int
 }
 
 var cache = []Asset{}
@@ -22,14 +24,26 @@ func toTiles(sources []string) [][]string {
 	return t
 }
 
+func longestTile(a []string) int {
+	n := 0
+	for _, t := range a {
+		if len(t) > n {
+			n = len(t)
+		}
+	}
+	return n
+}
+
 func newAsset(name string, sources []string) Asset {
-	a := Asset{name, toTiles(sources)}
+	a := Asset{name, toTiles(sources), 0, 0}
 	found := slices.ContainsFunc(cache, func(a Asset) bool {
 		return a.Name == name
 	})
 	if found {
 		panic("asset cannot be added because its already cached with the same name")
 	}
+	a.Width = longestTile(a.Sources[0])
+	a.Height = len(a.Sources[0])
 	cache = append(cache, a)
 	return a
 }
