@@ -54,17 +54,30 @@ var (
 var initialSwarmSize = 32
 
 type layer struct {
-	id     string
 	x      int
 	y      int
 	velo   int
 	hidden bool
 	style  tcell.Style
 	asset  assets.Asset
-	tiles  []string
+	// TODO: dont store tiles additionally to the asset
+	// just store chosen index and change callsites where needed
+	tiles []string
+	// NOTE: that the drawFunc doesnt actually update the screen
+	// it just computes the next layer. Its up to the renderer to sync
+	// the changes to the screen. This effectively allows for double buffering.
+	drawFunc func(l *layer, sc tcell.Screen)
 }
 
-func drawLayer(sc tcell.Screen, l layer) {
+func (l layer) String() string {
+	return fmt.Sprintf("x:%3d y:%3d velo:%3d hidden:%t", l.x, l.y, l.velo, l.hidden)
+}
+
+func (l *layer) setDrawFunc(f func(l *layer, sc tcell.Screen)) {
+	l.drawFunc = f
+}
+
+func drawFishLayer(sc tcell.Screen, l layer) {
 	sx := l.x
 	for _, tile := range l.tiles {
 		if len(tile) == 0 {
@@ -95,43 +108,52 @@ func drawLayer(sc tcell.Screen, l layer) {
 	}
 }
 
-func newRandomWithTiles(asset assets.Asset, assetIndex int, x int, y int) *layer {
-	return &layer{
-		id:    fmt.Sprintf(`layer-%d`, time.Now().Unix()),
-		x:     x,
-		y:     y,
-		velo:  internal.Choose(5, 4, 3, 1, 2, 6),
-		style: internal.Choose(fgPallete...),
-		asset: asset,
-		tiles: asset.Sources[assetIndex],
-	}
-}
+var velocityRange = []int{5, 4, 3, 1, 2, 6}
 
 func newRandomBatch(w, h int, batchSize int) []*layer {
 	batch := []*layer{}
 	for i := 0; i < batchSize; i++ {
 		asset := assets.Random()
 		side := internal.Choose(0, 1)
+		tiles := asset.Sources[side]
+		velo := internal.Choose(velocityRange...)
+		style := internal.Choose(fgPallete...)
 		var l *layer = nil
 		if side == 0 {
 			// setup swarm coming from the left side
-			assetIndex := 0
-			lx := (rand.Intn((asset.Width*8)-asset.Width) + asset.Width) * -1
-			ly := rand.Intn(h - asset.Height)
-			l = newRandomWithTiles(asset, assetIndex, lx, ly)
+			l = &layer{
+				x:     (rand.Intn((asset.Width*8)-asset.Width) + asset.Width) * -1,
+				y:     rand.Intn(h - asset.Height),
+				velo:  velo,
+				style: style,
+				asset: asset,
+				tiles: tiles,
+			}
 		} else {
 			// setup swarm coming from the right side
-			assetIndex := 1
-			rx := (rand.Intn((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width)
-			ry := rand.Intn(h - asset.Height)
-			l = newRandomWithTiles(asset, assetIndex, rx, ry)
-			// NOTE: make sure to invert the velo to get correct direction for tiles
-			l.velo *= -1
+			l = &layer{
+				x: (rand.Intn((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width),
+				y: rand.Intn(h - asset.Height),
+				// NOTE: make sure to invert the velo to get correct direction
+				velo:  velo * -1,
+				style: style,
+				asset: asset,
+				tiles: tiles,
+			}
 		}
 		if l == nil {
 			// unreachable: just for sanity reasons
 			panic("random layer was expected but not generated")
 		}
+		l.setDrawFunc(func(l *layer, sc tcell.Screen) {
+			drawW, _ := sc.Size()
+			drawFishLayer(sc, *l)
+			if l.velo > 0 && l.x >= drawW+l.asset.Width ||
+				l.velo < 0 && l.x < -l.asset.Width {
+				l.hidden = true
+			}
+			l.x += l.velo
+		})
 		batch = append(batch, l)
 	}
 	return batch
@@ -150,20 +172,12 @@ loop:
 			}
 		default:
 			renderW, renderH := sc.Size()
-			// render each layer into the tcell buffer before calling
-			// show to reduce flickering, especially when they collide.
 			for _, l := range *layers {
-				drawLayer(sc, *l)
-				if l.velo > 0 && l.x >= renderW+l.asset.Width ||
-					l.velo < 0 && l.x < -l.asset.Width {
-					l.hidden = true
-				}
-				l.x += l.velo
+				internal.Logln("LAYER DRAW %v", l)
+				l.drawFunc(l, sc)
 			}
-			// show the rendered results
 			sc.Show()
 
-			// do some cleanup before continuing to next frame
 			hidden := 0
 			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
 				if l.hidden {
@@ -190,6 +204,9 @@ func main() {
 	}
 	sc.SetStyle(tcell.StyleDefault)
 	sc.Clear()
+
+	// NOTE: For dev only via -tags=debug
+	internal.LogCleanup()
 
 	quit := func() {
 		p := recover()
@@ -221,8 +238,8 @@ func main() {
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			nextW, nextH := ev.Size()
-			// t := ev.When().Unix()
-			// internal.Log(fmt.Sprintf("RESIZE(%d): REV: %d %d => %d %d\n", t, initW, initH, nextW, nextH))
+			t := ev.When().Unix()
+			internal.Logln("RESIZE t:%d, w:%d h:%d -> w:%d h:%d", t, initW, initH, nextW, nextH)
 			if nextW != initW || nextH != initH {
 				if lastMessage != renderStart {
 					layers = append([]*layer{}, newRandomBatch(nextW, nextH, initialSwarmSize)...)
@@ -267,10 +284,10 @@ func main() {
 					}
 					select {
 					case messages <- renderHalt:
-						// t := ev.When().Unix()
-						// name := ev.Name()
+						t := ev.When().Unix()
+						name := ev.Name()
 						evW, evH := sc.Size()
-						// internal.Log(fmt.Sprintf("KEY(%s, %d): %d %d\n", name, t, evW, evH))
+						internal.Logln("RESIZE name:%s, t:%d, w:%d, h:%d", name, t, evW, evH)
 						layers = append([]*layer{}, newRandomBatch(evW, evH, initialSwarmSize)...)
 						go render(messages, sc, &layers)
 						lastMessage = renderStart
@@ -284,6 +301,6 @@ func main() {
 }
 
 // TODO:
-// bubbles
+// bubbles drawFunc and layer O o .
 // make it prettier with more assets in the background
 // simple cli for average,min,max velocity and refresh rate, monotone etc.
