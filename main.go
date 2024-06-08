@@ -54,15 +54,13 @@ var (
 var initialSwarmSize = 32
 
 type layer struct {
-	x      int
-	y      int
-	velo   int
-	hidden bool
-	style  tcell.Style
-	asset  assets.Asset
-	// TODO: dont store tiles additionally to the asset
-	// just store chosen index and change callsites where needed
-	tiles []string
+	x          int
+	y          int
+	velo       int
+	hidden     bool
+	style      tcell.Style
+	asset      assets.Asset
+	assetIndex int
 	// NOTE: that the drawFunc doesnt actually update the screen
 	// it just computes the next layer. Its up to the renderer to sync
 	// the changes to the screen. This effectively allows for double buffering.
@@ -77,14 +75,14 @@ func (l *layer) setDrawFunc(f func(l *layer, sc tcell.Screen)) {
 	l.drawFunc = f
 }
 
-var velocityRange = []int{5, 4, 3, 1, 2, 6}
+var veloRange = []int{5, 4, 3, 1, 2, 6}
 
 func fishDrawFunc(l *layer, sc tcell.Screen) {
 	drawW, _ := sc.Size()
 	initialX := l.x
 	initialY := l.y
 	ty := initialY
-	for _, tile := range l.tiles {
+	for _, tile := range l.asset.Sources[l.assetIndex] {
 		tlen := len(tile)
 		if tlen == 0 {
 			continue
@@ -119,43 +117,33 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 	(*l).x += l.velo
 }
 
-func newRandomBatch(w, h int, batchSize int) []*layer {
+func newRandomFish(w int, h int) *layer {
+	asset := assets.Random()
+	l := layer{
+		velo:       internal.Choose(veloRange...),
+		style:      internal.Choose(fgPallete...),
+		asset:      asset,
+		assetIndex: internal.Choose(0, 1),
+	}
+	if l.assetIndex == 0 {
+		// setup swarm coming from the left side
+		l.x = (rand.Intn((asset.Width*8)-asset.Width) + asset.Width) * -1
+		l.y = rand.Intn(h - asset.Height)
+	} else {
+		// setup swarm coming from the right side
+		l.x = (rand.Intn((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width)
+		l.y = rand.Intn(h - asset.Height)
+		// NOTE: make sure to invert the velo to get correct direction
+		l.velo *= -1
+	}
+	l.setDrawFunc(fishDrawFunc)
+	return &l
+}
+
+func newSwarm(w int, h int, batchSize int) []*layer {
 	batch := []*layer{}
 	for i := 0; i < batchSize; i++ {
-		asset := assets.Random()
-		side := internal.Choose(0, 1)
-		tiles := asset.Sources[side]
-		velo := internal.Choose(velocityRange...)
-		style := internal.Choose(fgPallete...)
-		var l *layer = nil
-		if side == 0 {
-			// setup swarm coming from the left side
-			l = &layer{
-				x:     (rand.Intn((asset.Width*8)-asset.Width) + asset.Width) * -1,
-				y:     rand.Intn(h - asset.Height),
-				velo:  velo,
-				style: style,
-				asset: asset,
-				tiles: tiles,
-			}
-		} else {
-			// setup swarm coming from the right side
-			l = &layer{
-				x: (rand.Intn((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width),
-				y: rand.Intn(h - asset.Height),
-				// NOTE: make sure to invert the velo to get correct direction
-				velo:  velo * -1,
-				style: style,
-				asset: asset,
-				tiles: tiles,
-			}
-		}
-		if l == nil {
-			// unreachable: just for sanity reasons
-			panic("random layer was expected but not generated")
-		}
-		l.setDrawFunc(fishDrawFunc)
-		batch = append(batch, l)
+		batch = append(batch, newRandomFish(w, h))
 	}
 	return batch
 }
@@ -178,7 +166,6 @@ loop:
 				l.drawFunc(l, sc)
 			}
 			sc.Show()
-
 			hidden := 0
 			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
 				if l.hidden {
@@ -187,7 +174,7 @@ loop:
 				}
 				return false
 			})
-			*layers = append(*layers, newRandomBatch(renderW, renderH, hidden)...)
+			*layers = append(*layers, newSwarm(renderW, renderH, hidden)...)
 			time.Sleep(renderTickDelay)
 		}
 	}
@@ -227,11 +214,10 @@ func main() {
 	}()
 
 	initW, initH := sc.Size()
-	layers := []*layer{}
-	layers = append(layers, newRandomBatch(initW, initH, initialSwarmSize)...)
+	swarm := newSwarm(initW, initH, initialSwarmSize)
 
 	messages := make(chan message, 1)
-	go render(messages, sc, &layers)
+	go render(messages, sc, &swarm)
 
 	lastMessage := renderStart
 	for {
@@ -243,15 +229,15 @@ func main() {
 			internal.Logln("RESIZE t:%d, w:%d h:%d -> w:%d h:%d", t, initW, initH, nextW, nextH)
 			if nextW != initW || nextH != initH {
 				if lastMessage != renderStart {
-					layers = append([]*layer{}, newRandomBatch(nextW, nextH, initialSwarmSize)...)
-					go render(messages, sc, &layers)
+					swarm = newSwarm(nextW, nextH, initialSwarmSize)
+					go render(messages, sc, &swarm)
 					lastMessage = renderStart
 					continue
 				}
 				select {
 				case messages <- renderHalt:
-					layers = append([]*layer{}, newRandomBatch(nextW, nextH, initialSwarmSize)...)
-					go render(messages, sc, &layers)
+					swarm = newSwarm(nextW, nextH, initialSwarmSize)
+					go render(messages, sc, &swarm)
 					lastMessage = renderStart
 				default:
 				}
@@ -267,7 +253,7 @@ func main() {
 				case 'p':
 					// continue where left off
 					if lastMessage == renderPause {
-						go render(messages, sc, &layers)
+						go render(messages, sc, &swarm)
 						lastMessage = renderStart
 						continue
 					}
@@ -289,8 +275,8 @@ func main() {
 						name := ev.Name()
 						evW, evH := sc.Size()
 						internal.Logln("RESIZE name:%s, t:%d, w:%d, h:%d", name, t, evW, evH)
-						layers = append([]*layer{}, newRandomBatch(evW, evH, initialSwarmSize)...)
-						go render(messages, sc, &layers)
+						swarm = newSwarm(evW, evH, initialSwarmSize)
+						go render(messages, sc, &swarm)
 						lastMessage = renderStart
 						sc.Sync()
 					default:
@@ -304,13 +290,13 @@ func main() {
 // TODO:
 
 // add bubbles drawFunc and layer O o .
-// make it prettier with more assets in the background
+// make it prettier with more assets in the background (flora)
 
 // never spawn fishies overlapping each other
 // never spawn fishies directly above or behind other fishies
 // dynamically decide swarmSize (based on the current width and height)
 
-// Simple cli for swithcing between using color masks and just random colors
+// Simple cli for switching between using color masks and just random colors
 // for the entire asset. `-mode [solid|mask] (default: solid)`
 
 // the render func should not have direct access to Show of the screen
