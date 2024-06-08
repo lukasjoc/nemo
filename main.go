@@ -70,7 +70,8 @@ type layer struct {
 }
 
 func (l layer) String() string {
-	return fmt.Sprintf("x:%3d y:%3d velo:%3d hidden:%t", l.x, l.y, l.velo, l.hidden)
+	return fmt.Sprintf("x:%4d y:%4d velo:%4d hidden:%6t group:%6s",
+		l.x, l.y, l.velo, l.hidden, l.asset.Group)
 }
 
 func (l *layer) setDrawFunc(f func(l *layer, sc tcell.Screen)) {
@@ -110,7 +111,7 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 		}
 		ty++
 	}
-	if l.velo > 0 && l.x >= drawW+l.asset.Width ||
+	if l.velo > 0 && l.x > drawW+l.asset.Width ||
 		l.velo < 0 && l.x < -l.asset.Width {
 		(*l).hidden = true
 	}
@@ -159,6 +160,7 @@ func bubbleDrawFunc(l *layer, sc tcell.Screen) {
 		}
 		tx := initialX
 		for _, r := range tile {
+			// TODO: dont rely on asset size implicitly
 			sc.SetContent(tx, ty-l.velo, ' ', nil, tcell.StyleDefault)
 			if !unicode.IsSpace(r) {
 				sc.SetContent(tx, ty, r, nil, l.style)
@@ -169,7 +171,7 @@ func bubbleDrawFunc(l *layer, sc tcell.Screen) {
 		}
 		ty++
 	}
-	if l.x >= drawH+l.asset.Height {
+	if l.y > drawH+l.asset.Height {
 		(*l).hidden = true
 	}
 	(*l).y += l.velo
@@ -178,10 +180,9 @@ func bubbleDrawFunc(l *layer, sc tcell.Screen) {
 func newRandomBubble(w int, h int) *layer {
 	asset := assets.Random("bubble")
 	l := layer{
-		velo:  -internal.Choose(5, 3, 2, 4),
-		style: internal.Choose(fgBluePallete...),
-		asset: asset,
-		// TODO: make x,y the fish corner
+		velo:       -internal.Choose(3, 2, 4, 5),
+		style:      internal.Choose(fgBluePallete...),
+		asset:      asset,
 		x:          rand.Intn(w),
 		y:          rand.Intn(h / 2),
 		assetIndex: 0,
@@ -204,10 +205,29 @@ loop:
 		default:
 			renderW, renderH := sc.Size()
 			bubbles := []*layer{}
+
+			hiddenFish := 0
+			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
+				if l.hidden {
+					if l.asset.Group == "fish" {
+						hiddenFish++
+					}
+					return true
+				}
+				return false
+			})
+			*layers = append(*layers, newSwarm(renderW, renderH, hiddenFish)...)
+
 			for _, l := range *layers {
-				if (l.x+l.asset.Width+1)%24 == 0 {
+				bx := 0
+				if l.velo < 0 {
+					bx = l.x + 1
+				} else {
+					bx = l.x + l.asset.Width
+				}
+				if bx > 0 && (bx%(renderW/4) == 0) {
 					b := newRandomBubble(renderW, renderH)
-					b.x = l.x + l.asset.Width + 1
+					b.x = bx
 					b.y = l.y - 1
 					bubbles = append(bubbles, b)
 				}
@@ -218,15 +238,6 @@ loop:
 				internal.Logln("LAYER DRAW %v", l)
 				l.drawFunc(l, sc)
 			}
-			hidden := 0
-			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
-				if l.asset.Group == "fish" && l.hidden {
-					hidden++
-					return true
-				}
-				return false
-			})
-			*layers = append(*layers, newSwarm(renderW, renderH, hidden)...)
 			sc.Show()
 			time.Sleep(renderTickDelay)
 		}
@@ -342,7 +353,8 @@ func main() {
 
 // TODO:
 
-// add bubbles drawFunc and layer O o .
+/// ascii name and version of program at bottom right corner
+
 // make it prettier with more assets in the background (flora)
 
 // never spawn fishies overlapping each other
@@ -354,7 +366,5 @@ func main() {
 
 // the render func should not have direct access to Show of the screen
 // but still be able to set the content on the screen
-
-/// ascii name and version of program at bottom right corner
 
 // Perforamnce analysis and improvements
