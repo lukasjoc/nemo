@@ -77,38 +77,47 @@ func (l *layer) setDrawFunc(f func(l *layer, sc tcell.Screen)) {
 	l.drawFunc = f
 }
 
-func drawFishLayer(sc tcell.Screen, l layer) {
-	sx := l.x
+var velocityRange = []int{5, 4, 3, 1, 2, 6}
+
+func fishDrawFunc(l *layer, sc tcell.Screen) {
+	drawW, _ := sc.Size()
+	initialX := l.x
+	initialY := l.y
+	ty := initialY
 	for _, tile := range l.tiles {
-		if len(tile) == 0 {
+		tlen := len(tile)
+		if tlen == 0 {
 			continue
 		}
+		tx := initialX
 		for _, r := range tile {
-			// clearing the garbage from the last transforms
+			// clear any garbage from the previous draw
 			if l.velo > 0 {
-				for i := sx - (l.velo) - 1; i < sx; i++ {
-					sc.SetContent(i, l.y, ' ', nil, tcell.StyleDefault)
+				for i := initialX - (l.velo) - 1; i < initialX; i++ {
+					sc.SetContent(i, ty, ' ', nil, tcell.StyleDefault)
 				}
 			}
 			if l.velo < 0 {
-				for i := (sx + len(tile)); i < (sx + len(tile) + -l.velo); i++ {
-					sc.SetContent(i, l.y, ' ', nil, tcell.StyleDefault)
+				for i := (initialX + tlen); i < (initialX + tlen + -l.velo); i++ {
+					sc.SetContent(i, ty, ' ', nil, tcell.StyleDefault)
 				}
 			}
-			// draw space in default color to be a nice citizen of terminalland
-			if unicode.IsSpace(r) {
-				sc.SetContent(l.x, l.y, r, nil, tcell.StyleDefault)
+			// draw space in default color to not leave any (invisible) trails
+			if !unicode.IsSpace(r) {
+				sc.SetContent(tx, ty, r, nil, l.style)
 			} else {
-				sc.SetContent(l.x, l.y, r, nil, l.style)
+				sc.SetContent(tx, ty, r, nil, tcell.StyleDefault)
 			}
-			l.x++
+			tx++
 		}
-		l.x = sx
-		l.y++
+		ty++
 	}
+	if l.velo > 0 && l.x >= drawW+l.asset.Width ||
+		l.velo < 0 && l.x < -l.asset.Width {
+		l.hidden = true
+	}
+	(*l).x += l.velo
 }
-
-var velocityRange = []int{5, 4, 3, 1, 2, 6}
 
 func newRandomBatch(w, h int, batchSize int) []*layer {
 	batch := []*layer{}
@@ -145,15 +154,7 @@ func newRandomBatch(w, h int, batchSize int) []*layer {
 			// unreachable: just for sanity reasons
 			panic("random layer was expected but not generated")
 		}
-		l.setDrawFunc(func(l *layer, sc tcell.Screen) {
-			drawW, _ := sc.Size()
-			drawFishLayer(sc, *l)
-			if l.velo > 0 && l.x >= drawW+l.asset.Width ||
-				l.velo < 0 && l.x < -l.asset.Width {
-				l.hidden = true
-			}
-			l.x += l.velo
-		})
+		l.setDrawFunc(fishDrawFunc)
 		batch = append(batch, l)
 	}
 	return batch
