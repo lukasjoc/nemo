@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"slices"
@@ -128,11 +127,11 @@ func newRandomFish(w int, h int) *layer {
 	}
 	leftSide := l.assetIndex == 0
 	if leftSide {
-		l.x = -(rand.Intn((asset.Width*8)-asset.Width) + asset.Width)
-		l.y = rand.Intn(h - asset.Height)
+		l.x = -(internal.IntRand((asset.Width*8)-asset.Width) + asset.Width)
+		l.y = internal.IntRand(h - asset.Height)
 	} else {
-		l.x = (rand.Intn((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width)
-		l.y = rand.Intn(h - asset.Height)
+		l.x = (internal.IntRand((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width)
+		l.y = internal.IntRand(h - asset.Height)
 		l.velo *= -1
 	}
 	l.setDrawFunc(fishDrawFunc)
@@ -183,8 +182,8 @@ func newRandomBubble(w int, h int) *layer {
 		velo:       -internal.Choose(3, 2, 4, 5),
 		style:      internal.Choose(fgBluePallete...),
 		asset:      asset,
-		x:          rand.Intn(w),
-		y:          rand.Intn(h / 2),
+		x:          internal.IntRand(w),
+		y:          internal.IntRand(h / 2),
 		assetIndex: 0,
 	}
 	l.setDrawFunc(bubbleDrawFunc)
@@ -245,20 +244,14 @@ loop:
 }
 
 func main() {
+	// NOTE: For dev only via -tags=debug
+	internal.LogCleanup()
+
 	sc, err := tcell.NewScreen()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Couldnt create screen: %v\n", err)
 		os.Exit(1)
 	}
-	if err := sc.Init(); err != nil {
-		fmt.Fprintf(os.Stderr, "Couldnt init tcell: %v\n", err)
-		os.Exit(1)
-	}
-	sc.SetStyle(tcell.StyleDefault)
-	sc.Clear()
-
-	// NOTE: For dev only via -tags=debug
-	internal.LogCleanup()
 
 	quit := func() {
 		p := recover()
@@ -277,11 +270,18 @@ func main() {
 		os.Exit(1)
 	}()
 
+	if err := sc.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "Couldnt init tcell: %v\n", err)
+		os.Exit(1)
+	}
+	sc.SetStyle(tcell.StyleDefault)
+	sc.Clear()
+
 	initW, initH := sc.Size()
-	swarm := newSwarm(initW, initH, initialSwarmSize)
+	layers := newSwarm(initW, initH, initialSwarmSize)
 
 	messages := make(chan message, 1)
-	go render(messages, sc, &swarm)
+	go render(messages, sc, &layers)
 
 	lastMessage := renderStart
 	for {
@@ -289,19 +289,19 @@ func main() {
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			nextW, nextH := ev.Size()
-			t := ev.When().Unix()
-			internal.Logln("RESIZE t:%d, w:%d h:%d -> w:%d h:%d", t, initW, initH, nextW, nextH)
 			if nextW != initW || nextH != initH {
+				t := ev.When().Unix()
+				internal.Logln("RESIZE t:%d, w:%d h:%d -> w:%d h:%d", t, initW, initH, nextW, nextH)
 				if lastMessage != renderStart {
-					swarm = newSwarm(nextW, nextH, initialSwarmSize)
-					go render(messages, sc, &swarm)
+					layers = newSwarm(nextW, nextH, initialSwarmSize)
+					go render(messages, sc, &layers)
 					lastMessage = renderStart
 					continue
 				}
 				select {
 				case messages <- renderHalt:
-					swarm = newSwarm(nextW, nextH, initialSwarmSize)
-					go render(messages, sc, &swarm)
+					layers = newSwarm(nextW, nextH, initialSwarmSize)
+					go render(messages, sc, &layers)
 					lastMessage = renderStart
 				default:
 				}
@@ -317,7 +317,7 @@ func main() {
 				case 'p':
 					// continue where left off
 					if lastMessage == renderPause {
-						go render(messages, sc, &swarm)
+						go render(messages, sc, &layers)
 						lastMessage = renderStart
 						continue
 					}
@@ -338,9 +338,9 @@ func main() {
 						t := ev.When().Unix()
 						name := ev.Name()
 						evW, evH := sc.Size()
-						internal.Logln("RESIZE name:%s, t:%d, w:%d, h:%d", name, t, evW, evH)
-						swarm = newSwarm(evW, evH, initialSwarmSize)
-						go render(messages, sc, &swarm)
+						internal.Logln("RESTART name:%s, t:%d, w:%d, h:%d", name, t, evW, evH)
+						layers = newSwarm(evW, evH, initialSwarmSize)
+						go render(messages, sc, &layers)
 						lastMessage = renderStart
 						sc.Sync()
 					default:
