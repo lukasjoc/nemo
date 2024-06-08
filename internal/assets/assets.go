@@ -1,20 +1,20 @@
 package assets
 
 import (
-	"slices"
+	"fmt"
 	"strings"
 
 	"github.com/lukasjoc/nemo/internal"
 )
 
 type Asset struct {
-	Name    string
+	Group   string
 	Sources [][]string
 	Width   int
 	Height  int
 }
 
-var cache = []Asset{}
+var cache = map[string][]Asset{}
 
 func toTiles(sources []string) [][]string {
 	t := [][]string{}
@@ -25,7 +25,7 @@ func toTiles(sources []string) [][]string {
 }
 
 func longestTile(a []string) int {
-	n := 0
+	n := -1
 	for _, t := range a {
 		if len(t) > n {
 			n = len(t)
@@ -34,23 +34,29 @@ func longestTile(a []string) int {
 	return n
 }
 
-func newAsset(name string, sources []string) Asset {
-	a := Asset{name, toTiles(sources), 0, 0}
-	found := slices.ContainsFunc(cache, func(a Asset) bool {
-		return a.Name == name
-	})
-	if found {
-		panic("asset cannot be added because its already cached with the same name")
+func newAsset(group string, sources ...string) Asset {
+	tiles := toTiles(sources)
+	a := Asset{
+		Group:   group,
+		Sources: tiles,
+		Width:   longestTile(tiles[0]),
+		Height:  len(tiles[0]),
 	}
-	a.Width = longestTile(a.Sources[0])
-	a.Height = len(a.Sources[0])
-	cache = append(cache, a)
+	if _, ok := cache[a.Group]; !ok {
+		cache[a.Group] = []Asset{}
+	}
+	cache[a.Group] = append(cache[a.Group], a)
 	return a
 }
 
-func Random() Asset { return internal.Choose(cache...) }
+func Random(group string) Asset {
+	if _, ok := cache[group]; !ok {
+		panic(fmt.Sprintf("group with name `%s` doesnt exist", group))
+	}
+	return internal.Choose(cache[group]...)
+}
 
-var Nemo = newAsset("nemo", []string{`
+var _ = newAsset("fish", `
   __
 \/ @\
 /\__/
@@ -59,9 +65,9 @@ var Nemo = newAsset("nemo", []string{`
 /@ \/
 \__/\
 `,
-})
+)
 
-var NemoJr = newAsset("nemo_jr", []string{`
+var _ = newAsset("fish", `
   ___
 \/ CC\
 /\__~/
@@ -70,17 +76,12 @@ var NemoJr = newAsset("nemo_jr", []string{`
 /CC \/
 \~__/\
 `,
-})
+)
 
-var Runner = newAsset("runner", []string{`
->(#)@>
-`, `
-<@(#)<
-`,
-})
+var _ = newAsset("fish", `>(#)@>`, `<@(#)<`)
 
-// INFO: AQ.. are taken from the asciiquarium program
-var AQ0 = newAsset("aq0", []string{`
+// INFO: these 2 are taken from the asciiquarium program
+var _ = newAsset("fish", `
        \
      ...\..,
 \  /'       \
@@ -95,9 +96,9 @@ var AQ0 = newAsset("aq0", []string{`
  \ \      /  \
   ''\'"'"\
 `,
-})
+)
 
-var AQ1 = newAsset("aq1", []string{`
+var _ = newAsset("fish", `
     \
 \ /--\
 >=  (o>
@@ -110,4 +111,9 @@ var AQ1 = newAsset("aq1", []string{`
  \__/ \
   \
 `,
-})
+)
+
+var _ = newAsset("bubble", `*`)
+var _ = newAsset("bubble", `.`)
+var _ = newAsset("bubble", `o`)
+var _ = newAsset("bubble", `O`)

@@ -26,7 +26,12 @@ const (
 const renderTickDelay = time.Millisecond * 120
 
 var (
-	fgPallete = []tcell.Style{
+	fgBluePallete = []tcell.Style{
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightBlue),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSkyBlue),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSteelBlue),
+	}
+	fgPallete = append([]tcell.Style{
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorOrchid),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleGoldenrod),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleGreen),
@@ -34,7 +39,6 @@ var (
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleVioletRed),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPapayaWhip),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPeachPuff),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightBlue),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightCoral),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightCyan),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightGoldenrodYellow),
@@ -43,12 +47,10 @@ var (
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightPink),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSalmon),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSeaGreen),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSkyBlue),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSlateGray),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSteelBlue),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightYellow),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLimeGreen),
-	}
+	}, fgBluePallete...)
 )
 
 var initialSwarmSize = 32
@@ -74,8 +76,6 @@ func (l layer) String() string {
 func (l *layer) setDrawFunc(f func(l *layer, sc tcell.Screen)) {
 	l.drawFunc = f
 }
-
-var veloRange = []int{5, 4, 3, 1, 2, 6}
 
 func fishDrawFunc(l *layer, sc tcell.Screen) {
 	drawW, _ := sc.Size()
@@ -112,40 +112,82 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 	}
 	if l.velo > 0 && l.x >= drawW+l.asset.Width ||
 		l.velo < 0 && l.x < -l.asset.Width {
-		l.hidden = true
+		(*l).hidden = true
 	}
 	(*l).x += l.velo
 }
 
 func newRandomFish(w int, h int) *layer {
-	asset := assets.Random()
+	asset := assets.Random("fish")
 	l := layer{
-		velo:       internal.Choose(veloRange...),
+		velo:       internal.Choose(5, 2, 1, 4, 3, 6),
 		style:      internal.Choose(fgPallete...),
 		asset:      asset,
 		assetIndex: internal.Choose(0, 1),
 	}
-	if l.assetIndex == 0 {
-		// setup swarm coming from the left side
-		l.x = (rand.Intn((asset.Width*8)-asset.Width) + asset.Width) * -1
+	leftSide := l.assetIndex == 0
+	if leftSide {
+		l.x = -(rand.Intn((asset.Width*8)-asset.Width) + asset.Width)
 		l.y = rand.Intn(h - asset.Height)
 	} else {
-		// setup swarm coming from the right side
 		l.x = (rand.Intn((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width)
 		l.y = rand.Intn(h - asset.Height)
-		// NOTE: make sure to invert the velo to get correct direction
 		l.velo *= -1
 	}
 	l.setDrawFunc(fishDrawFunc)
 	return &l
 }
 
-func newSwarm(w int, h int, batchSize int) []*layer {
-	batch := []*layer{}
-	for i := 0; i < batchSize; i++ {
-		batch = append(batch, newRandomFish(w, h))
+func newSwarm(w int, h int, swarmSize int) []*layer {
+	swarm := []*layer{}
+	for i := 0; i < swarmSize; i++ {
+		swarm = append(swarm, newRandomFish(w, h))
 	}
-	return batch
+	return swarm
+}
+
+func bubbleDrawFunc(l *layer, sc tcell.Screen) {
+	_, drawH := sc.Size()
+	(*l).asset = assets.Random("bubble")
+	initialX := l.x
+	initialY := l.y
+	ty := initialY
+	for _, tile := range l.asset.Sources[l.assetIndex] {
+		tlen := len(tile)
+		if tlen == 0 {
+			continue
+		}
+		tx := initialX
+		for _, r := range tile {
+			sc.SetContent(tx, ty-l.velo, ' ', nil, tcell.StyleDefault)
+			if !unicode.IsSpace(r) {
+				sc.SetContent(tx, ty, r, nil, l.style)
+			} else {
+				sc.SetContent(tx, ty, r, nil, tcell.StyleDefault)
+			}
+			tx++
+		}
+		ty++
+	}
+	if l.x >= drawH+l.asset.Height {
+		(*l).hidden = true
+	}
+	(*l).y += l.velo
+}
+
+func newRandomBubble(w int, h int) *layer {
+	asset := assets.Random("bubble")
+	l := layer{
+		velo:  -internal.Choose(5, 3, 2, 4),
+		style: internal.Choose(fgBluePallete...),
+		asset: asset,
+		// TODO: make x,y the fish corner
+		x:          rand.Intn(w),
+		y:          rand.Intn(h / 2),
+		assetIndex: 0,
+	}
+	l.setDrawFunc(bubbleDrawFunc)
+	return &l
 }
 
 func render(messages <-chan message, sc tcell.Screen, layers *[]*layer) {
@@ -161,20 +203,31 @@ loop:
 			}
 		default:
 			renderW, renderH := sc.Size()
+			bubbles := []*layer{}
+			for _, l := range *layers {
+				if (l.x+l.asset.Width+1)%24 == 0 {
+					b := newRandomBubble(renderW, renderH)
+					b.x = l.x + l.asset.Width + 1
+					b.y = l.y - 1
+					bubbles = append(bubbles, b)
+				}
+			}
+			*layers = append(*layers, bubbles...)
+
 			for _, l := range *layers {
 				internal.Logln("LAYER DRAW %v", l)
 				l.drawFunc(l, sc)
 			}
-			sc.Show()
 			hidden := 0
 			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
-				if l.hidden {
+				if l.asset.Group == "fish" && l.hidden {
 					hidden++
 					return true
 				}
 				return false
 			})
 			*layers = append(*layers, newSwarm(renderW, renderH, hidden)...)
+			sc.Show()
 			time.Sleep(renderTickDelay)
 		}
 	}
@@ -210,7 +263,7 @@ func main() {
 	go func() {
 		<-sigs
 		quit()
-		os.Exit(0)
+		os.Exit(1)
 	}()
 
 	initW, initH := sc.Size()
@@ -301,5 +354,7 @@ func main() {
 
 // the render func should not have direct access to Show of the screen
 // but still be able to set the content on the screen
+
+/// ascii name and version of program at bottom right corner
 
 // Perforamnce analysis and improvements
