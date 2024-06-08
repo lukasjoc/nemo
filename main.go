@@ -301,6 +301,18 @@ func main() {
 }
 
 // TODO:
-// bubbles drawFunc and layer O o .
+
+// add bubbles drawFunc and layer O o .
 // make it prettier with more assets in the background
-// simple cli for average,min,max velocity and refresh rate, monotone etc.
+
+// never spawn fishies overlapping each other
+// never spawn fishies directly above or behind other fishies
+// dynamically decide swarmSize (based on the current width and height)
+
+// Simple cli for swithcing between using color masks and just random colors
+// for the entire asset. `-mode [solid|mask] (default: solid)`
+
+// the render func should not have direct access to Show of the screen
+// but still be able to set the content on the screen
+
+// Perforamnce analysis and improvements
