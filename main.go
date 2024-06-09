@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 	"unicode"
@@ -193,6 +194,8 @@ func newRandomBubble(w int, h int) *layer {
 func render(messages <-chan message, sc tcell.Screen, layers *[]*layer) {
 	lastMessage := renderStart
 	sc.Clear()
+	nameStyle := internal.Choose(fgPallete...)
+
 loop:
 	for {
 		select {
@@ -203,6 +206,22 @@ loop:
 			}
 		default:
 			renderW, renderH := sc.Size()
+
+			name := `	
+  ___  ___ __ _  ___
+ / _ \/ -_)  ' \/ _ \
+/_//_/\__/_/_/_/\___/ 1.0`
+			nameTiles := strings.Split(name, "\n")
+			nameX := renderW - len(nameTiles[len(nameTiles)-1]) - 1
+			nameY := renderH - len(nameTiles) - 1
+			for _, tile := range nameTiles {
+				rx := nameX
+				for _, r := range tile {
+					sc.SetContent(rx, nameY, r, nil, nameStyle)
+					rx++
+				}
+				nameY++
+			}
 			bubbles := []*layer{}
 
 			hiddenFish := 0
@@ -352,8 +371,6 @@ func main() {
 }
 
 // TODO:
-
-/// ascii name and version of program at bottom right corner
 
 // make it prettier with more assets in the background (flora)
 
