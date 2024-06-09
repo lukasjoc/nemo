@@ -20,10 +20,10 @@ type message uint
 const (
 	renderStart message = iota
 	renderPause
-	renderHalt
 )
 
 const renderTickDelay = time.Millisecond * 120
+const restartDelay = time.Millisecond * 50
 
 var (
 	fgBluePallete = []tcell.Style{
@@ -51,6 +51,23 @@ var (
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightYellow),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLimeGreen),
 	}, fgBluePallete...)
+
+	bodypartColorMask = func(ch rune) tcell.Style {
+		style := tcell.StyleDefault.Dim(true).Bold(true)
+		switch ch {
+		case '\\', '/', '#', '~', '-', '_', '<', '(', ')':
+			return internal.Choose([]tcell.Style{
+				style.Foreground(tcell.ColorLightYellow),
+				style.Foreground(tcell.ColorLightGreen),
+				style.Foreground(tcell.ColorLightBlue),
+			}...)
+		case 'C', '@', 'o':
+			return style.Foreground(tcell.ColorPaleVioletRed)
+		case ',', '"', '\'', ';', ':', '=':
+			return style.Foreground(tcell.ColorLightCoral)
+		}
+		return style
+	}
 )
 
 var initialSwarmSize = 32
@@ -102,10 +119,10 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 				}
 			}
 			// draw space in default color to not leave any (invisible) trails
-			if !unicode.IsSpace(r) {
-				sc.SetContent(tx, ty, r, nil, l.style)
-			} else {
+			if unicode.IsSpace(r) {
 				sc.SetContent(tx, ty, r, nil, tcell.StyleDefault)
+			} else {
+				sc.SetContent(tx, ty, r, nil, bodypartColorMask(r))
 			}
 			tx++
 		}
@@ -192,16 +209,14 @@ func newRandomBubble(w int, h int) *layer {
 }
 
 func render(messages <-chan message, sc tcell.Screen, layers *[]*layer) {
+	nameStyle := internal.Choose(fgPallete...)
 	lastMessage := renderStart
 	sc.Clear()
-	nameStyle := internal.Choose(fgPallete...)
-
 loop:
 	for {
 		select {
 		case lastMessage = <-messages:
-			if lastMessage == renderPause ||
-				lastMessage == renderHalt {
+			if lastMessage == renderPause {
 				break loop
 			}
 		default:
@@ -305,27 +320,23 @@ func main() {
 	lastMessage := renderStart
 	for {
 		ev := sc.PollEvent()
+		evW, evH := sc.Size()
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			nextW, nextH := ev.Size()
-			if nextW != initW || nextH != initH {
-				t := ev.When().Unix()
-				internal.Logln("RESIZE t:%d, w:%d h:%d -> w:%d h:%d", t, initW, initH, nextW, nextH)
-				if lastMessage != renderStart {
-					layers = newSwarm(nextW, nextH, initialSwarmSize)
-					go render(messages, sc, &layers)
-					lastMessage = renderStart
-					continue
-				}
-				select {
-				case messages <- renderHalt:
-					layers = newSwarm(nextW, nextH, initialSwarmSize)
-					go render(messages, sc, &layers)
-					lastMessage = renderStart
-				default:
-				}
+			if nextW == initW && nextH == initH {
+				continue
 			}
-			sc.Sync()
+			internal.Logln("RESIZE t:%d, w:%d, h:%d", ev.When().Unix(), evW, evH)
+			select {
+			case messages <- renderPause:
+				lastMessage = renderPause
+				time.Sleep(restartDelay)
+				layers = newSwarm(evW, evH, initialSwarmSize)
+				go render(messages, sc, &layers)
+				lastMessage = renderStart
+			default:
+			}
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape ||
 				ev.Key() == tcell.KeyCtrlC {
@@ -334,34 +345,28 @@ func main() {
 			if ev.Key() == tcell.KeyRune {
 				switch ev.Rune() {
 				case 'p':
-					// continue where left off
+					internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
 					if lastMessage == renderPause {
 						go render(messages, sc, &layers)
 						lastMessage = renderStart
 						continue
 					}
-					// stop the renderer but keep screen and layers intact
-					if lastMessage == renderStart {
-						select {
-						case messages <- renderPause:
-							lastMessage = renderPause
-						default:
-						}
+					select {
+					case messages <- renderPause:
+						lastMessage = renderPause
+					default:
 					}
 				case 'r':
-					if lastMessage != renderStart {
+					if lastMessage == renderPause {
 						continue
 					}
+					internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
 					select {
-					case messages <- renderHalt:
-						t := ev.When().Unix()
-						name := ev.Name()
-						evW, evH := sc.Size()
-						internal.Logln("RESTART name:%s, t:%d, w:%d, h:%d", name, t, evW, evH)
+					case messages <- renderPause:
+						time.Sleep(restartDelay)
 						layers = newSwarm(evW, evH, initialSwarmSize)
 						go render(messages, sc, &layers)
 						lastMessage = renderStart
-						sc.Sync()
 					default:
 					}
 				}
@@ -372,16 +377,15 @@ func main() {
 
 // TODO:
 
-// make it prettier with more assets in the background (flora)
-
-// never spawn fishies overlapping each other
-// never spawn fishies directly above or behind other fishies
-// dynamically decide swarmSize (based on the current width and height)
-
 // Simple cli for switching between using color masks and just random colors
 // for the entire asset. `-mode [solid|mask] (default: solid)`
 
+// ?? V2
 // the render func should not have direct access to Show of the screen
 // but still be able to set the content on the screen
+// make it prettier with more assets in the background (flora)
+// never spawn fishies overlapping each other (quadtree)
+// never spawn fishies directly above or behind other fishies (quadtree)
+// automatically decide swarmSize (based on the current width and height) (quadtree)
 
 // Perforamnce analysis and improvements

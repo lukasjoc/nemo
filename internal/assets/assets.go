@@ -56,6 +56,8 @@ func Random(group string) Asset {
 	return internal.Choose(cache[group]...)
 }
 
+// DISCLAIMER: some of the fish are taken from the asciiquarium program
+
 var _ = newAsset("fish", `
   __
 \/ @\
@@ -80,7 +82,6 @@ var _ = newAsset("fish", `
 
 var _ = newAsset("fish", `>(#)@>`, `<@(#)<`)
 
-// INFO: these 2 are taken from the asciiquarium program
 var _ = newAsset("fish", `
        \
      ...\..,
@@ -110,6 +111,21 @@ var _ = newAsset("fish", `
 <o)  =<
  \__/ \
   \
+`,
+)
+
+var _ = newAsset("fish", `
+       \:.
+\;,   ,;\\\\\,,
+  \\\\\;;:::::::o
+  ///;;::::::::<
+ /;' ''/////''
+`, `
+      .:/
+   ,,///;,     ,;/
+ o:::::::;;/////
+ >::::::::;;;\\\
+  ''\\\\\''   ';\
 `,
 )
 
