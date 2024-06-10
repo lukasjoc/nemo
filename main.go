@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +14,10 @@ import (
 	"github.com/gdamore/tcell"
 	"github.com/lukasjoc/nemo/internal"
 	"github.com/lukasjoc/nemo/internal/assets"
+)
+
+var (
+	modeMask = flag.Bool("chac", true, "enables character color mode")
 )
 
 type message uint
@@ -122,7 +127,11 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 			if unicode.IsSpace(r) {
 				sc.SetContent(tx, ty, r, nil, tcell.StyleDefault)
 			} else {
-				sc.SetContent(tx, ty, r, nil, bodypartColorMask(r))
+				if *modeMask {
+					sc.SetContent(tx, ty, r, nil, bodypartColorMask(r))
+				} else {
+					sc.SetContent(tx, ty, r, nil, l.style)
+				}
 			}
 			tx++
 		}
@@ -138,7 +147,7 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 func newRandomFish(w int, h int) *layer {
 	asset := assets.Random("fish")
 	l := layer{
-		velo:       internal.Choose(5, 2, 1, 4, 3, 6),
+		velo:       internal.Choose(2, 1, 3),
 		style:      internal.Choose(fgPallete...),
 		asset:      asset,
 		assetIndex: internal.Choose(0, 1),
@@ -278,6 +287,8 @@ loop:
 }
 
 func main() {
+	flag.Parse()
+
 	// NOTE: For dev only via -tags=debug
 	internal.LogCleanup()
 
@@ -376,16 +387,13 @@ func main() {
 }
 
 // TODO:
-
-// Simple cli for switching between using color masks and just random colors
-// for the entire asset. `-mode [solid|mask] (default: solid)`
-
 // ?? V2
 // the render func should not have direct access to Show of the screen
 // but still be able to set the content on the screen
 // make it prettier with more assets in the background (flora)
-// never spawn fishies overlapping each other (quadtree)
-// never spawn fishies directly above or behind other fishies (quadtree)
-// automatically decide swarmSize (based on the current width and height) (quadtree)
-
-// Perforamnce analysis and improvements
+// Use Quadtree for storing 2d position data better and to determine
+// the amount of fishies fitting without overlapping automatically.
+//	 never spawn fishies overlapping each other
+// 	 never spawn fishies directly above or behind other fishies
+// 	 automatically decide swarmSize (based on the current width and height)
+// More perf. analisys and improvements
