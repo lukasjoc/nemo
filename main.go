@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	modeMask = flag.Bool("chac", true, "enables character color mode")
+	chacMode = flag.Bool("chac", true, "enables character color mode")
 )
 
 type message uint
@@ -61,11 +61,10 @@ var (
 		style := tcell.StyleDefault.Dim(true).Bold(true)
 		switch ch {
 		case '\\', '/', '#', '~', '-', '_', '<', '(', ')':
-			return internal.Choose([]tcell.Style{
+			return internal.Choose(
 				style.Foreground(tcell.ColorLightYellow),
 				style.Foreground(tcell.ColorLightGreen),
-				style.Foreground(tcell.ColorLightBlue),
-			}...)
+				style.Foreground(tcell.ColorLightBlue))
 		case 'C', '@', 'o':
 			return style.Foreground(tcell.ColorPaleVioletRed)
 		case ',', '"', '\'', ';', ':', '=':
@@ -75,7 +74,7 @@ var (
 	}
 )
 
-var initialSwarmSize = 32
+var initialSwarmSize = 12
 
 type layer struct {
 	x          int
@@ -127,7 +126,7 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 			if unicode.IsSpace(r) {
 				sc.SetContent(tx, ty, r, nil, tcell.StyleDefault)
 			} else {
-				if *modeMask {
+				if *chacMode {
 					sc.SetContent(tx, ty, r, nil, bodypartColorMask(r))
 				} else {
 					sc.SetContent(tx, ty, r, nil, l.style)
@@ -230,11 +229,12 @@ loop:
 			}
 		default:
 			renderW, renderH := sc.Size()
-
 			name := `	
   ___  ___ __ _  ___
  / _ \/ -_)  ' \/ _ \
 /_//_/\__/_/_/_/\___/ 1.0`
+			//TODO: i should have a more generic function that can render a bunch of
+			// bytes to a x,y,w,h
 			nameTiles := strings.Split(name, "\n")
 			nameX := renderW - len(nameTiles[len(nameTiles)-1]) - 1
 			nameY := renderH - len(nameTiles) - 1
@@ -246,7 +246,6 @@ loop:
 				}
 				nameY++
 			}
-			bubbles := []*layer{}
 
 			hiddenFish := 0
 			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
@@ -260,6 +259,7 @@ loop:
 			})
 			*layers = append(*layers, newSwarm(renderW, renderH, hiddenFish)...)
 
+			bubbles := []*layer{}
 			for _, l := range *layers {
 				bx := 0
 				if l.velo < 0 {
@@ -388,8 +388,6 @@ func main() {
 
 // TODO:
 // ?? V2
-// the render func should not have direct access to Show of the screen
-// but still be able to set the content on the screen
 // make it prettier with more assets in the background (flora)
 // Use Quadtree for storing 2d position data better and to determine
 // the amount of fishies fitting without overlapping automatically.
