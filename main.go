@@ -1,11 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 	"unicode"
@@ -15,18 +16,27 @@ import (
 	"github.com/lukasjoc/nemo/internal/assets"
 )
 
+var (
+	chacMode = flag.Bool("chac", true, "enables character color mode")
+)
+
 type message uint
 
 const (
 	renderStart message = iota
 	renderPause
-	renderHalt
 )
 
 const renderTickDelay = time.Millisecond * 120
+const restartDelay = time.Millisecond * 50
 
 var (
-	fgPallete = []tcell.Style{
+	fgBluePallete = []tcell.Style{
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightBlue),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSkyBlue),
+		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSteelBlue),
+	}
+	fgPallete = append([]tcell.Style{
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorOrchid),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleGoldenrod),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleGreen),
@@ -34,7 +44,6 @@ var (
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleVioletRed),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPapayaWhip),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPeachPuff),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightBlue),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightCoral),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightCyan),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightGoldenrodYellow),
@@ -43,26 +52,38 @@ var (
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightPink),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSalmon),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSeaGreen),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSkyBlue),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSlateGray),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSteelBlue),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightYellow),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLimeGreen),
+	}, fgBluePallete...)
+
+	bodypartColorMask = func(ch rune) tcell.Style {
+		style := tcell.StyleDefault.Dim(true).Bold(true)
+		switch ch {
+		case '\\', '/', '#', '~', '-', '_', '<', '(', ')':
+			return internal.Choose(
+				style.Foreground(tcell.ColorLightYellow),
+				style.Foreground(tcell.ColorLightGreen),
+				style.Foreground(tcell.ColorLightBlue))
+		case 'C', '@', 'o':
+			return style.Foreground(tcell.ColorPaleVioletRed)
+		case ',', '"', '\'', ';', ':', '=':
+			return style.Foreground(tcell.ColorLightCoral)
+		}
+		return style
 	}
 )
 
-var initialSwarmSize = 32
+var initialSwarmSize = 12
 
 type layer struct {
-	x      int
-	y      int
-	velo   int
-	hidden bool
-	style  tcell.Style
-	asset  assets.Asset
-	// TODO: dont store tiles additionally to the asset
-	// just store chosen index and change callsites where needed
-	tiles []string
+	x          int
+	y          int
+	velo       int
+	hidden     bool
+	style      tcell.Style
+	asset      assets.Asset
+	assetIndex int
 	// NOTE: that the drawFunc doesnt actually update the screen
 	// it just computes the next layer. Its up to the renderer to sync
 	// the changes to the screen. This effectively allows for double buffering.
@@ -70,143 +91,212 @@ type layer struct {
 }
 
 func (l layer) String() string {
-	return fmt.Sprintf("x:%3d y:%3d velo:%3d hidden:%t", l.x, l.y, l.velo, l.hidden)
+	return fmt.Sprintf("x:%4d y:%4d velo:%4d hidden:%6t group:%6s",
+		l.x, l.y, l.velo, l.hidden, l.asset.Group)
 }
 
 func (l *layer) setDrawFunc(f func(l *layer, sc tcell.Screen)) {
 	l.drawFunc = f
 }
 
-func drawFishLayer(sc tcell.Screen, l layer) {
-	sx := l.x
-	for _, tile := range l.tiles {
-		if len(tile) == 0 {
+func fishDrawFunc(l *layer, sc tcell.Screen) {
+	drawW, _ := sc.Size()
+	initialX := l.x
+	initialY := l.y
+	ty := initialY
+	for _, tile := range l.asset.Sources[l.assetIndex] {
+		tlen := len(tile)
+		if tlen == 0 {
 			continue
 		}
+		tx := initialX
 		for _, r := range tile {
-			// clearing the garbage from the last transforms
+			// clear any garbage from the previous draw
 			if l.velo > 0 {
-				for i := sx - (l.velo) - 1; i < sx; i++ {
-					sc.SetContent(i, l.y, ' ', nil, tcell.StyleDefault)
+				for i := initialX - (l.velo) - 1; i < initialX; i++ {
+					sc.SetContent(i, ty, ' ', nil, tcell.StyleDefault)
 				}
 			}
 			if l.velo < 0 {
-				for i := (sx + len(tile)); i < (sx + len(tile) + -l.velo); i++ {
-					sc.SetContent(i, l.y, ' ', nil, tcell.StyleDefault)
+				for i := (initialX + tlen); i < (initialX + tlen + -l.velo); i++ {
+					sc.SetContent(i, ty, ' ', nil, tcell.StyleDefault)
 				}
 			}
-			// draw space in default color to be a nice citizen of terminalland
+			// draw space in default color to not leave any (invisible) trails
 			if unicode.IsSpace(r) {
-				sc.SetContent(l.x, l.y, r, nil, tcell.StyleDefault)
+				sc.SetContent(tx, ty, r, nil, tcell.StyleDefault)
 			} else {
-				sc.SetContent(l.x, l.y, r, nil, l.style)
+				if *chacMode {
+					sc.SetContent(tx, ty, r, nil, bodypartColorMask(r))
+				} else {
+					sc.SetContent(tx, ty, r, nil, l.style)
+				}
 			}
-			l.x++
+			tx++
 		}
-		l.x = sx
-		l.y++
+		ty++
 	}
+	if l.velo > 0 && l.x > drawW+l.asset.Width ||
+		l.velo < 0 && l.x < -l.asset.Width {
+		(*l).hidden = true
+	}
+	(*l).x += l.velo
 }
 
-var velocityRange = []int{5, 4, 3, 1, 2, 6}
-
-func newRandomBatch(w, h int, batchSize int) []*layer {
-	batch := []*layer{}
-	for i := 0; i < batchSize; i++ {
-		asset := assets.Random()
-		side := internal.Choose(0, 1)
-		tiles := asset.Sources[side]
-		velo := internal.Choose(velocityRange...)
-		style := internal.Choose(fgPallete...)
-		var l *layer = nil
-		if side == 0 {
-			// setup swarm coming from the left side
-			l = &layer{
-				x:     (rand.Intn((asset.Width*8)-asset.Width) + asset.Width) * -1,
-				y:     rand.Intn(h - asset.Height),
-				velo:  velo,
-				style: style,
-				asset: asset,
-				tiles: tiles,
-			}
-		} else {
-			// setup swarm coming from the right side
-			l = &layer{
-				x: (rand.Intn((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width),
-				y: rand.Intn(h - asset.Height),
-				// NOTE: make sure to invert the velo to get correct direction
-				velo:  velo * -1,
-				style: style,
-				asset: asset,
-				tiles: tiles,
-			}
-		}
-		if l == nil {
-			// unreachable: just for sanity reasons
-			panic("random layer was expected but not generated")
-		}
-		l.setDrawFunc(func(l *layer, sc tcell.Screen) {
-			drawW, _ := sc.Size()
-			drawFishLayer(sc, *l)
-			if l.velo > 0 && l.x >= drawW+l.asset.Width ||
-				l.velo < 0 && l.x < -l.asset.Width {
-				l.hidden = true
-			}
-			l.x += l.velo
-		})
-		batch = append(batch, l)
+func newRandomFish(w int, h int) *layer {
+	asset := assets.Random("fish")
+	l := layer{
+		velo:       internal.Choose(2, 1, 3),
+		style:      internal.Choose(fgPallete...),
+		asset:      asset,
+		assetIndex: internal.Choose(0, 1),
 	}
-	return batch
+	leftSide := l.assetIndex == 0
+	if leftSide {
+		l.x = -(internal.IntRand((asset.Width*8)-asset.Width) + asset.Width)
+		l.y = internal.IntRand(h - asset.Height)
+	} else {
+		l.x = (internal.IntRand((w+asset.Width*8)-(w+asset.Width)) + w + asset.Width)
+		l.y = internal.IntRand(h - asset.Height)
+		l.velo *= -1
+	}
+	l.setDrawFunc(fishDrawFunc)
+	return &l
+}
+
+func newSwarm(w int, h int, swarmSize int) []*layer {
+	swarm := []*layer{}
+	for i := 0; i < swarmSize; i++ {
+		swarm = append(swarm, newRandomFish(w, h))
+	}
+	return swarm
+}
+
+func bubbleDrawFunc(l *layer, sc tcell.Screen) {
+	_, drawH := sc.Size()
+	(*l).asset = assets.Random("bubble")
+	initialX := l.x
+	initialY := l.y
+	ty := initialY
+	for _, tile := range l.asset.Sources[l.assetIndex] {
+		tlen := len(tile)
+		if tlen == 0 {
+			continue
+		}
+		tx := initialX
+		for _, r := range tile {
+			// TODO: dont rely on asset size implicitly
+			sc.SetContent(tx, ty-l.velo, ' ', nil, tcell.StyleDefault)
+			if !unicode.IsSpace(r) {
+				sc.SetContent(tx, ty, r, nil, l.style)
+			} else {
+				sc.SetContent(tx, ty, r, nil, tcell.StyleDefault)
+			}
+			tx++
+		}
+		ty++
+	}
+	if l.y > drawH+l.asset.Height {
+		(*l).hidden = true
+	}
+	(*l).y += l.velo
+}
+
+func newRandomBubble(w int, h int) *layer {
+	asset := assets.Random("bubble")
+	l := layer{
+		velo:       -internal.Choose(3, 2, 4, 5),
+		style:      internal.Choose(fgBluePallete...),
+		asset:      asset,
+		x:          internal.IntRand(w),
+		y:          internal.IntRand(h / 2),
+		assetIndex: 0,
+	}
+	l.setDrawFunc(bubbleDrawFunc)
+	return &l
 }
 
 func render(messages <-chan message, sc tcell.Screen, layers *[]*layer) {
+	nameStyle := internal.Choose(fgPallete...)
 	lastMessage := renderStart
 	sc.Clear()
 loop:
 	for {
 		select {
 		case lastMessage = <-messages:
-			if lastMessage == renderPause ||
-				lastMessage == renderHalt {
+			if lastMessage == renderPause {
 				break loop
 			}
 		default:
 			renderW, renderH := sc.Size()
+			name := `	
+  ___  ___ __ _  ___
+ / _ \/ -_)  ' \/ _ \
+/_//_/\__/_/_/_/\___/ 1.0`
+			//TODO: i should have a more generic function that can render a bunch of
+			// bytes to a x,y,w,h
+			nameTiles := strings.Split(name, "\n")
+			nameX := renderW - len(nameTiles[len(nameTiles)-1]) - 1
+			nameY := renderH - len(nameTiles) - 1
+			for _, tile := range nameTiles {
+				rx := nameX
+				for _, r := range tile {
+					sc.SetContent(rx, nameY, r, nil, nameStyle)
+					rx++
+				}
+				nameY++
+			}
+
+			hiddenFish := 0
+			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
+				if l.hidden {
+					if l.asset.Group == "fish" {
+						hiddenFish++
+					}
+					return true
+				}
+				return false
+			})
+			*layers = append(*layers, newSwarm(renderW, renderH, hiddenFish)...)
+
+			bubbles := []*layer{}
+			for _, l := range *layers {
+				bx := 0
+				if l.velo < 0 {
+					bx = l.x + 1
+				} else {
+					bx = l.x + l.asset.Width
+				}
+				if bx > 0 && (bx%(renderW/4) == 0) {
+					b := newRandomBubble(renderW, renderH)
+					b.x = bx
+					b.y = l.y - 1
+					bubbles = append(bubbles, b)
+				}
+			}
+			*layers = append(*layers, bubbles...)
+
 			for _, l := range *layers {
 				internal.Logln("LAYER DRAW %v", l)
 				l.drawFunc(l, sc)
 			}
 			sc.Show()
-
-			hidden := 0
-			*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
-				if l.hidden {
-					hidden++
-					return true
-				}
-				return false
-			})
-			*layers = append(*layers, newRandomBatch(renderW, renderH, hidden)...)
 			time.Sleep(renderTickDelay)
 		}
 	}
 }
 
 func main() {
+	flag.Parse()
+
+	// NOTE: For dev only via -tags=debug
+	internal.LogCleanup()
+
 	sc, err := tcell.NewScreen()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Couldnt create screen: %v\n", err)
 		os.Exit(1)
 	}
-	if err := sc.Init(); err != nil {
-		fmt.Fprintf(os.Stderr, "Couldnt init tcell: %v\n", err)
-		os.Exit(1)
-	}
-	sc.SetStyle(tcell.StyleDefault)
-	sc.Clear()
-
-	// NOTE: For dev only via -tags=debug
-	internal.LogCleanup()
 
 	quit := func() {
 		p := recover()
@@ -222,12 +312,18 @@ func main() {
 	go func() {
 		<-sigs
 		quit()
-		os.Exit(0)
+		os.Exit(1)
 	}()
 
+	if err := sc.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "Couldnt init tcell: %v\n", err)
+		os.Exit(1)
+	}
+	sc.SetStyle(tcell.StyleDefault)
+	sc.Clear()
+
 	initW, initH := sc.Size()
-	layers := []*layer{}
-	layers = append(layers, newRandomBatch(initW, initH, initialSwarmSize)...)
+	layers := newSwarm(initW, initH, initialSwarmSize)
 
 	messages := make(chan message, 1)
 	go render(messages, sc, &layers)
@@ -235,27 +331,23 @@ func main() {
 	lastMessage := renderStart
 	for {
 		ev := sc.PollEvent()
+		evW, evH := sc.Size()
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			nextW, nextH := ev.Size()
-			t := ev.When().Unix()
-			internal.Logln("RESIZE t:%d, w:%d h:%d -> w:%d h:%d", t, initW, initH, nextW, nextH)
-			if nextW != initW || nextH != initH {
-				if lastMessage != renderStart {
-					layers = append([]*layer{}, newRandomBatch(nextW, nextH, initialSwarmSize)...)
-					go render(messages, sc, &layers)
-					lastMessage = renderStart
-					continue
-				}
-				select {
-				case messages <- renderHalt:
-					layers = append([]*layer{}, newRandomBatch(nextW, nextH, initialSwarmSize)...)
-					go render(messages, sc, &layers)
-					lastMessage = renderStart
-				default:
-				}
+			if nextW == initW && nextH == initH {
+				continue
 			}
-			sc.Sync()
+			internal.Logln("RESIZE t:%d, w:%d, h:%d", ev.When().Unix(), evW, evH)
+			select {
+			case messages <- renderPause:
+				lastMessage = renderPause
+				time.Sleep(restartDelay)
+				layers = newSwarm(evW, evH, initialSwarmSize)
+				go render(messages, sc, &layers)
+				lastMessage = renderStart
+			default:
+			}
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape ||
 				ev.Key() == tcell.KeyCtrlC {
@@ -264,34 +356,28 @@ func main() {
 			if ev.Key() == tcell.KeyRune {
 				switch ev.Rune() {
 				case 'p':
-					// continue where left off
+					internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
 					if lastMessage == renderPause {
 						go render(messages, sc, &layers)
 						lastMessage = renderStart
 						continue
 					}
-					// stop the renderer but keep screen and layers intact
-					if lastMessage == renderStart {
-						select {
-						case messages <- renderPause:
-							lastMessage = renderPause
-						default:
-						}
+					select {
+					case messages <- renderPause:
+						lastMessage = renderPause
+					default:
 					}
 				case 'r':
-					if lastMessage != renderStart {
+					if lastMessage == renderPause {
 						continue
 					}
+					internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
 					select {
-					case messages <- renderHalt:
-						t := ev.When().Unix()
-						name := ev.Name()
-						evW, evH := sc.Size()
-						internal.Logln("RESIZE name:%s, t:%d, w:%d, h:%d", name, t, evW, evH)
-						layers = append([]*layer{}, newRandomBatch(evW, evH, initialSwarmSize)...)
+					case messages <- renderPause:
+						time.Sleep(restartDelay)
+						layers = newSwarm(evW, evH, initialSwarmSize)
 						go render(messages, sc, &layers)
 						lastMessage = renderStart
-						sc.Sync()
 					default:
 					}
 				}
@@ -301,6 +387,11 @@ func main() {
 }
 
 // TODO:
-// bubbles drawFunc and layer O o .
-// make it prettier with more assets in the background
-// simple cli for average,min,max velocity and refresh rate, monotone etc.
+// ?? V2
+// make it prettier with more assets in the background (flora)
+// Use Quadtree for storing 2d position data better and to determine
+// the amount of fishies fitting without overlapping automatically.
+//	 never spawn fishies overlapping each other
+// 	 never spawn fishies directly above or behind other fishies
+// 	 automatically decide swarmSize (based on the current width and height)
+// More perf. analisys and improvements
