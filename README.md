@@ -5,5 +5,3 @@
 ```
 > Swarms of fishies
 
-
-![](nemo.mov)
