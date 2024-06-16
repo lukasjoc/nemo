@@ -45,8 +45,7 @@ func (r *renderer) stop() {
 func (r *renderer) start() {
 	//r.mu.Lock()
 	//defer r.mu.Unlock()
-	// r.t.Reset(renderTickDelay)
-	r.t = time.NewTicker(renderTickDelay)
+	r.t.Reset(renderTickDelay)
 	go r.render()
 }
 func (r *renderer) restart() {
@@ -181,15 +180,6 @@ func (r *renderer) renderBubbles() {
 			r.bubbles[i] = b
 		}
 	}
-	// TODO: clean out hidden layers
-	//for i := 0; i < r.swarmSize; i++ {
-	//	if r.bubbles[i] == nil {
-	//		continue
-	//	}
-	//	if r.bubbles[i].hidden {
-	//		r.bubbles[i] = nil
-	//	}
-	//}
 	for _, l := range r.bubbles {
 		if l == nil {
 			continue
