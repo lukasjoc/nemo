@@ -102,13 +102,11 @@ func main() {
 	sc.SetStyle(tcell.StyleDefault)
 	sc.Clear()
 
-	r := newRenderer(&rendererConfig{
-		sc:        sc,
-		swarmSize: initialSwarmSize,
-	})
+	r := newRenderer(&rendererConfig{sc, initialSwarmSize})
 
 	quit := func() {
 		p := recover()
+		r.stop()
 		r.destroy()
 		sc.Fini()
 		if p != nil {
@@ -152,31 +150,31 @@ func main() {
 			if nextW == initW && nextH == initH {
 				continue
 			}
-			internal.Logln("RESIZE t:%d, w:%d, h:%d", ev.When().Unix(), evW, evH)
-			r.stop()
-			r.seed()
-			r.start()
+			//internal.Logln("RESIZE t:%d, w:%d, h:%d", ev.When().Unix(), evW, evH)
+			//r.stop()
+			//r.seed()
+			//r.start()
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape ||
 				ev.Key() == tcell.KeyCtrlC {
+				fmt.Println("CTRL-C Received!!")
 				return
 			}
 			if ev.Key() == tcell.KeyRune {
 				switch ev.Rune() {
 				case 'p':
-					time.Sleep(time.Millisecond)
 					internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
-					if r.running {
-						r.stop()
-					} else {
+					if r.stopped {
 						r.start()
+					} else {
+						r.stop()
 					}
-				case
-					'r':
-					r.stop()
-					r.seed()
-					r.start()
 				}
+				//case 'r':
+				//	//r.stop()
+				//	//<-r.stopped
+				//	//r.start()
+				//}
 			}
 		}
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gdamore/tcell"
@@ -20,11 +19,13 @@ type rendererConfig struct {
 type renderer struct {
 	// TODO: probably need to `recover()` all the errors from the render
 	// workers into a errs channel and report better
-	mu        sync.RWMutex
+	//mu        sync.RWMutex
+	t         *time.Ticker
+	done      chan bool
+	stopped   bool
 	sc        tcell.Screen
 	w         int
 	h         int
-	running   bool
 	swarmSize int
 	nameStyle tcell.Style
 	swarm     []*layer
@@ -32,35 +33,42 @@ type renderer struct {
 }
 
 func (r *renderer) stop() {
-	r.mu.Lock()
-	r.running = false
-	r.mu.Unlock()
-	r.renderStats()
-	r.sc.Show()
+	if r.stopped {
+		return
+	}
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
+	r.t.Stop()
+	r.done <- true
+	r.stopped = true
+	//r.done <- true
+	// close(r.done)
+	//fmt.Println("waiting for routines")
+	//r.wg.Wait()
+	//fmt.Println("waited for routines")
+	// r.renderStats()
+	// r.sc.Show()
 }
 
 func (r *renderer) start() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.running {
-		return
-	}
-	r.running = true
-	r.sc.Clear()
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
+	// r.t.Reset(renderTickDelay)
+	r.stopped = false
+	r.t = time.NewTicker(renderTickDelay)
 	go r.render()
 }
 
 func (r *renderer) destroy() {
-	r.stop()
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
 	r.swarm = nil
 	r.bubbles = nil
 }
 
 func (r *renderer) refresh() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
 	w, h := r.sc.Size()
 	r.w = w
 	r.h = h
@@ -83,8 +91,8 @@ func (r *renderer) refresh() {
 func (r *renderer) seed() {
 	r.destroy()
 	r.refresh()
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
 	r.nameStyle = internal.Choose(fgPallete...)
 	r.swarm = make([]*layer, r.swarmSize)
 	// TODO: clean out swarm
@@ -108,8 +116,8 @@ var nameTiles = strings.Split(nameRaw, "\n")
 // func (r *renderer) renderText(x int, y int, w int, h int, text string) { }
 
 func (r *renderer) renderName() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
 	nameX := r.w - len(nameTiles[len(nameTiles)-1]) - 1
 	nameY := r.h - len(nameTiles) - 1
 	for _, tile := range nameTiles {
@@ -123,8 +131,8 @@ func (r *renderer) renderName() {
 }
 
 func (r *renderer) renderStats() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
 	// TODO: render stats
 	fishCount := 0
 	bubbleCount := 0
@@ -138,7 +146,7 @@ func (r *renderer) renderStats() {
 			bubbleCount++
 		}
 	}
-	stats := fmt.Sprintf("P: %t\nFish: %d\nBubbles: %d", !r.running, fishCount, bubbleCount)
+	stats := fmt.Sprintf("Fish: %d\nBubbles: %d", fishCount, bubbleCount)
 	statsTiles := strings.Split(stats, "\n")
 	nameX := r.w - len(statsTiles[len(statsTiles)-1]) - 1
 	nameY := 0 + len(statsTiles) - 1
@@ -153,8 +161,8 @@ func (r *renderer) renderStats() {
 }
 
 func (r *renderer) renderBubbles() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	//r.mu.Lock()
+	//defer r.mu.Unlock()
 	if r.bubbles == nil {
 		// TODO: what do do here.. should not happen
 		return
@@ -174,14 +182,15 @@ func (r *renderer) renderBubbles() {
 			r.bubbles[i] = b
 		}
 	}
-	for i := 0; i < r.swarmSize; i++ {
-		if r.bubbles[i] == nil {
-			continue
-		}
-		if r.bubbles[i].hidden {
-			r.bubbles[i] = nil
-		}
-	}
+	// TODO: clean out hidden layers
+	//for i := 0; i < r.swarmSize; i++ {
+	//	if r.bubbles[i] == nil {
+	//		continue
+	//	}
+	//	if r.bubbles[i].hidden {
+	//		r.bubbles[i] = nil
+	//	}
+	//}
 	for _, l := range r.bubbles {
 		if l == nil {
 			continue
@@ -191,17 +200,17 @@ func (r *renderer) renderBubbles() {
 }
 
 func (r *renderer) renderSwarm() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i := 0; i < r.swarmSize; i++ {
-		if r.swarm[i] == nil {
-			continue
-		}
-		if r.swarm[i].hidden {
-			r.swarm[i] = nil
-		}
-	}
-	// TODO: clean hidden bubbles
+	// r.mu.Lock()
+	// defer r.mu.Unlock()
+	// TODO: clean out hidden layers
+	//for i := 0; i < r.swarmSize; i++ {
+	//	if r.swarm[i] == nil {
+	//		continue
+	//	}
+	//	if r.swarm[i].hidden {
+	//		r.swarm[i] = nil
+	//	}
+	//}
 	for _, l := range r.swarm {
 		if l == nil {
 			continue
@@ -211,21 +220,27 @@ func (r *renderer) renderSwarm() {
 	}
 }
 
+// TODO: i should have a draw loop and a update loop with different
+// tick delays. I think that would make it even smoother.
 func (r *renderer) render() {
-	// TODO: i should have a draw loop and a update loop with different
-	// tick delays. I think that would make it even smoother.
-	for r.running {
-		r.renderName()
-		r.renderSwarm()
-		r.renderBubbles()
-		r.renderStats()
-		r.sc.Show()
-		time.Sleep(renderTickDelay)
+	// defer r.wg.Done()
+	for {
+		select {
+		case <-r.done:
+			return
+		case <-r.t.C:
+			r.renderName()
+			r.renderSwarm()
+			r.renderBubbles()
+			r.renderStats()
+			r.sc.Show()
+		}
 	}
 }
 
 func newRenderer(config *rendererConfig) *renderer {
-	r := renderer{sc: config.sc, swarmSize: config.swarmSize,
-		swarm: nil, bubbles: nil}
+	ticker := time.NewTicker(renderTickDelay)
+	r := renderer{sc: config.sc, t: ticker, done: make(chan bool),
+		swarmSize: config.swarmSize, swarm: nil, bubbles: nil}
 	return &r
 }
