@@ -88,14 +88,28 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
+	// TODO: should the renderer create the screen automatically?
 	sc, err := tcell.NewScreen()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Couldnt create screen: %v\n", err)
 		os.Exit(1)
 	}
 
+	if err := sc.Init(); err != nil {
+		fmt.Fprintf(os.Stderr, "Couldnt init tcell: %v\n", err)
+		os.Exit(1)
+	}
+	sc.SetStyle(tcell.StyleDefault)
+	sc.Clear()
+
+	r := newRenderer(&rendererConfig{
+		sc:        sc,
+		swarmSize: initialSwarmSize,
+	})
+
 	quit := func() {
 		p := recover()
+		r.destroy()
 		sc.Fini()
 		if p != nil {
 			panic(p)
@@ -115,63 +129,57 @@ func main() {
 	}
 	defer quit()
 
-	if err := sc.Init(); err != nil {
-		fmt.Fprintf(os.Stderr, "Couldnt init tcell: %v\n", err)
-		os.Exit(1)
-	}
-
-	sc.SetStyle(tcell.StyleDefault)
-	sc.Clear()
-
-	r := newRenderer(sc, initialSwarmSize)
-
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigs
 		quit()
-		r.stop()
-		// TODO: more cleanup
 		os.Exit(1)
 	}()
 
-	// initW, initH := sc.Size()
-	r.reseed()
-	go r.render()
+	r.seed()
+	r.start()
 
-	// go r.start()
-	// for {
-	// 	ev := sc.PollEvent()
-	// 	evW, evH := sc.Size()
-	// 	switch ev := ev.(type) {
-	// 	case *tcell.EventResize:
-	// 		nextW, nextH := ev.Size()
-	// 		if nextW == initW && nextH == initH {
-	// 			continue
-	// 		}
-	// 		internal.Logln("RESIZE t:%d, w:%d, h:%d", ev.When().Unix(), evW, evH)
-	// 		r.restart()
-	// 	case *tcell.EventKey:
-	// 		if ev.Key() == tcell.KeyEscape ||
-	// 			ev.Key() == tcell.KeyCtrlC {
-	// 			return
-	// 		}
-	// 		if ev.Key() == tcell.KeyRune {
-	// 			switch ev.Rune() {
-	// 			case 'p':
-	// 				internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
-	// 				if r.running {
-	// 					r.stop()
-	// 				} else {
-	// 					r.start()
-	// 				}
-	// 			case
-	// 				'r':
-	// 				r.restart()
-	// 			}
-	// 		}
-	// 	}
-	// }
+	initW, initH := sc.Size()
+
+	// TODO: hide this in a r.poll()
+	for {
+		ev := sc.PollEvent()
+		evW, evH := sc.Size()
+		switch ev := ev.(type) {
+		case *tcell.EventResize:
+			nextW, nextH := ev.Size()
+			if nextW == initW && nextH == initH {
+				continue
+			}
+			internal.Logln("RESIZE t:%d, w:%d, h:%d", ev.When().Unix(), evW, evH)
+			r.stop()
+			r.seed()
+			r.start()
+		case *tcell.EventKey:
+			if ev.Key() == tcell.KeyEscape ||
+				ev.Key() == tcell.KeyCtrlC {
+				return
+			}
+			if ev.Key() == tcell.KeyRune {
+				switch ev.Rune() {
+				case 'p':
+					time.Sleep(time.Millisecond)
+					internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
+					if r.running {
+						r.stop()
+					} else {
+						r.start()
+					}
+				case
+					'r':
+					r.stop()
+					r.seed()
+					r.start()
+				}
+			}
+		}
+	}
 }
 
 // TODO:
