@@ -22,7 +22,7 @@ type renderer struct {
 	//mu        sync.RWMutex
 	t         *time.Ticker
 	done      chan bool
-	stopped   bool
+	stopped   chan bool
 	sc        tcell.Screen
 	w         int
 	h         int
@@ -33,30 +33,28 @@ type renderer struct {
 }
 
 func (r *renderer) stop() {
-	if r.stopped {
-		return
-	}
 	//r.mu.Lock()
 	//defer r.mu.Unlock()
 	r.t.Stop()
-	r.done <- true
-	r.stopped = true
-	//r.done <- true
-	// close(r.done)
-	//fmt.Println("waiting for routines")
-	//r.wg.Wait()
-	//fmt.Println("waited for routines")
-	// r.renderStats()
-	// r.sc.Show()
+	go func() { r.done <- true }()
+	go func() { r.stopped <- true }()
+	r.renderStats(time.Now())
+	r.sc.Show()
 }
 
 func (r *renderer) start() {
 	//r.mu.Lock()
 	//defer r.mu.Unlock()
 	// r.t.Reset(renderTickDelay)
-	r.stopped = false
 	r.t = time.NewTicker(renderTickDelay)
 	go r.render()
+}
+func (r *renderer) restart() {
+	r.stop()
+	<-r.stopped
+	r.refresh()
+	r.seed()
+	r.start()
 }
 
 func (r *renderer) destroy() {
@@ -72,6 +70,7 @@ func (r *renderer) refresh() {
 	w, h := r.sc.Size()
 	r.w = w
 	r.h = h
+	r.sc.Clear()
 }
 
 //func (r *renderer) clean() {
@@ -118,7 +117,7 @@ var nameTiles = strings.Split(nameRaw, "\n")
 func (r *renderer) renderName() {
 	//r.mu.Lock()
 	//defer r.mu.Unlock()
-	nameX := r.w - len(nameTiles[len(nameTiles)-1]) - 1
+	nameX := r.w - len(nameTiles[len(nameTiles)-1]) - 4
 	nameY := r.h - len(nameTiles) - 1
 	for _, tile := range nameTiles {
 		rx := nameX
@@ -130,7 +129,7 @@ func (r *renderer) renderName() {
 	}
 }
 
-func (r *renderer) renderStats() {
+func (r *renderer) renderStats(ts time.Time) {
 	//r.mu.Lock()
 	//defer r.mu.Unlock()
 	// TODO: render stats
@@ -146,9 +145,9 @@ func (r *renderer) renderStats() {
 			bubbleCount++
 		}
 	}
-	stats := fmt.Sprintf("Fish: %d\nBubbles: %d", fishCount, bubbleCount)
+	stats := fmt.Sprintf("TS: %d\nFish: %2d\nBubbles: %2d", ts.Unix(), fishCount, bubbleCount)
 	statsTiles := strings.Split(stats, "\n")
-	nameX := r.w - len(statsTiles[len(statsTiles)-1]) - 1
+	nameX := r.w - len(statsTiles[len(statsTiles)-1]) - (1)
 	nameY := 0 + len(statsTiles) - 1
 	for _, tile := range statsTiles {
 		rx := nameX
@@ -228,11 +227,11 @@ func (r *renderer) render() {
 		select {
 		case <-r.done:
 			return
-		case <-r.t.C:
+		case ts := <-r.t.C:
 			r.renderName()
 			r.renderSwarm()
 			r.renderBubbles()
-			r.renderStats()
+			r.renderStats(ts)
 			r.sc.Show()
 		}
 	}
@@ -240,7 +239,7 @@ func (r *renderer) render() {
 
 func newRenderer(config *rendererConfig) *renderer {
 	ticker := time.NewTicker(renderTickDelay)
-	r := renderer{sc: config.sc, t: ticker, done: make(chan bool),
+	r := renderer{sc: config.sc, t: ticker, done: make(chan bool), stopped: make(chan bool),
 		swarmSize: config.swarmSize, swarm: nil, bubbles: nil}
 	return &r
 }

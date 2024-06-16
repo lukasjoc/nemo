@@ -67,8 +67,6 @@ var (
 	}
 )
 
-var initialSwarmSize = 12
-
 func main() {
 	flag.Parse()
 
@@ -102,7 +100,7 @@ func main() {
 	sc.SetStyle(tcell.StyleDefault)
 	sc.Clear()
 
-	r := newRenderer(&rendererConfig{sc, initialSwarmSize})
+	r := newRenderer(&rendererConfig{sc, 12})
 
 	quit := func() {
 		p := recover()
@@ -150,10 +148,7 @@ func main() {
 			if nextW == initW && nextH == initH {
 				continue
 			}
-			//internal.Logln("RESIZE t:%d, w:%d, h:%d", ev.When().Unix(), evW, evH)
-			//r.stop()
-			//r.seed()
-			//r.start()
+			r.restart()
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape ||
 				ev.Key() == tcell.KeyCtrlC {
@@ -164,17 +159,15 @@ func main() {
 				switch ev.Rune() {
 				case 'p':
 					internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
-					if r.stopped {
+					select {
+					case <-r.stopped:
 						r.start()
-					} else {
+					default:
 						r.stop()
 					}
+				case 'r':
+					r.restart()
 				}
-				//case 'r':
-				//	//r.stop()
-				//	//<-r.stopped
-				//	//r.start()
-				//}
 			}
 		}
 	}
