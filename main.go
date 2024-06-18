@@ -100,7 +100,9 @@ func main() {
 	sc.SetStyle(tcell.StyleDefault)
 	sc.Clear()
 
-	r := newRenderer(&rendererConfig{sc, 12})
+	r := newRenderer(&rendererConfig{sc, 24})
+	r.seed()
+	r.start()
 
 	quit := func() {
 		p := recover()
@@ -133,12 +135,7 @@ func main() {
 		os.Exit(1)
 	}()
 
-	r.seed()
-	r.start()
-
 	initW, initH := sc.Size()
-
-	// TODO: hide this in a r.poll()
 	for {
 		ev := sc.PollEvent()
 		evW, evH := sc.Size()

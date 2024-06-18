@@ -214,7 +214,7 @@ func (r *renderer) renderSwarm() {
 		return
 	}
 	for _, layerIndex := range findHiddenLayers(r.swarm) {
-		r.swarm[layerIndex] = nil
+		r.swarm[layerIndex] = newRandomFish(r.w, r.h)
 	}
 	for _, l := range r.swarm {
 		if l == nil {
