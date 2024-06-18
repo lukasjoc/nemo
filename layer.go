@@ -129,7 +129,8 @@ func bubbleDrawFunc(l *layer, sc tcell.Screen) {
 		}
 		ty++
 	}
-	if l.y > drawH+l.asset.Height {
+	internal.Logln("Y:%d h:%d, assetH:%d", l.y, drawH, l.asset.Height)
+	if l.y < -l.asset.Height {
 		(*l).hidden = true
 	}
 	(*l).y += l.velo

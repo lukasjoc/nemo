@@ -48,6 +48,7 @@ func (r *renderer) start() {
 	r.t.Reset(renderTickDelay)
 	go r.render()
 }
+
 func (r *renderer) restart() {
 	r.stop()
 	<-r.stopped
@@ -135,14 +136,16 @@ func (r *renderer) renderStats(ts time.Time) {
 	fishCount := 0
 	bubbleCount := 0
 	for _, l := range r.swarm {
-		if l != nil {
-			fishCount++
+		if l == nil {
+			continue
 		}
+		fishCount++
 	}
 	for _, l := range r.bubbles {
-		if l != nil {
-			bubbleCount++
+		if l == nil {
+			continue
 		}
+		bubbleCount++
 	}
 	stats := fmt.Sprintf("TS: %d\nFish: %2d\nBubbles: %2d", ts.Unix(), fishCount, bubbleCount)
 	statsTiles := strings.Split(stats, "\n")
@@ -158,14 +161,29 @@ func (r *renderer) renderStats(ts time.Time) {
 	}
 }
 
+func findHiddenLayers(layers []*layer) []int {
+	idx := []int{}
+	for i, l := range layers {
+		if l != nil && l.hidden {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
+
 func (r *renderer) renderBubbles() {
 	//r.mu.Lock()
 	//defer r.mu.Unlock()
 	if r.bubbles == nil {
-		// TODO: what do do here.. should not happen
 		return
 	}
+	for _, layerIndex := range findHiddenLayers(r.bubbles) {
+		r.bubbles[layerIndex] = nil
+	}
 	for i, l := range r.swarm {
+		if l == nil {
+			continue
+		}
 		bx := 0
 		if l.velo < 0 {
 			bx = l.x + 1
@@ -184,6 +202,7 @@ func (r *renderer) renderBubbles() {
 		if l == nil {
 			continue
 		}
+		internal.Logln("LAYER DRAW %v", l)
 		l.drawFunc(l, r.sc)
 	}
 }
@@ -191,15 +210,12 @@ func (r *renderer) renderBubbles() {
 func (r *renderer) renderSwarm() {
 	// r.mu.Lock()
 	// defer r.mu.Unlock()
-	// TODO: clean out hidden layers
-	//for i := 0; i < r.swarmSize; i++ {
-	//	if r.swarm[i] == nil {
-	//		continue
-	//	}
-	//	if r.swarm[i].hidden {
-	//		r.swarm[i] = nil
-	//	}
-	//}
+	if r.swarm == nil {
+		return
+	}
+	for _, layerIndex := range findHiddenLayers(r.swarm) {
+		r.swarm[layerIndex] = nil
+	}
 	for _, l := range r.swarm {
 		if l == nil {
 			continue
@@ -212,7 +228,6 @@ func (r *renderer) renderSwarm() {
 // TODO: i should have a draw loop and a update loop with different
 // tick delays. I think that would make it even smoother.
 func (r *renderer) render() {
-	// defer r.wg.Done()
 	for {
 		select {
 		case <-r.done:
