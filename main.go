@@ -3,11 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
-	"runtime"
-	"runtime/pprof"
 	"syscall"
 	"time"
 
@@ -16,9 +13,7 @@ import (
 )
 
 var (
-	chacMode   = flag.Bool("chac", true, "enables character color mode")
-	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
-	memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+	chacMode = flag.Bool("chac", true, "enables character color mode")
 )
 
 const restartDelay = time.Millisecond * 50
@@ -49,7 +44,6 @@ var (
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightYellow),
 		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLimeGreen),
 	}, fgBluePallete...)
-
 	bodypartColorMask = func(ch rune) tcell.Style {
 		style := tcell.StyleDefault.Dim(true).Bold(true)
 		switch ch {
@@ -68,23 +62,8 @@ var (
 )
 
 func main() {
+	internal.DebugStart()
 	flag.Parse()
-
-	// NOTE: For dev only via -tags=debug
-	internal.LogCleanup()
-
-	// TODO: hide behind debug tag
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal("could not create CPU profile: ", err)
-		}
-		defer f.Close() // error handling omitted for example
-		if err := pprof.StartCPUProfile(f); err != nil {
-			log.Fatal("could not start CPU profile: ", err)
-		}
-		defer pprof.StopCPUProfile()
-	}
 
 	// TODO: should the renderer create the screen automatically?
 	sc, err := tcell.NewScreen()
@@ -101,9 +80,6 @@ func main() {
 	sc.Clear()
 
 	r := newRenderer(&rendererConfig{sc, 24})
-	r.seed()
-	r.start()
-
 	quit := func() {
 		p := recover()
 		r.stop()
@@ -112,20 +88,9 @@ func main() {
 		if p != nil {
 			panic(p)
 		}
-		// TODO: hide behind debug tag
-		if *memprofile != "" {
-			f, err := os.Create(*memprofile)
-			if err != nil {
-				log.Fatal("could not create memory profile: ", err)
-			}
-			defer f.Close() // error handling omitted for example
-			runtime.GC()    // get up-to-date statistics
-			if err := pprof.WriteHeapProfile(f); err != nil {
-				log.Fatal("could not write memory profile: ", err)
-			}
-		}
 	}
 	defer quit()
+	defer internal.DebugEnd()
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
@@ -134,6 +99,9 @@ func main() {
 		quit()
 		os.Exit(1)
 	}()
+
+	r.seed()
+	r.start()
 
 	initW, initH := sc.Size()
 	for {
@@ -149,7 +117,6 @@ func main() {
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape ||
 				ev.Key() == tcell.KeyCtrlC {
-				fmt.Println("CTRL-C Received!!")
 				return
 			}
 			if ev.Key() == tcell.KeyRune {
@@ -169,9 +136,6 @@ func main() {
 		}
 	}
 }
-
-// TODO:
-// More perf. analisys and improvements
 
 // ?? V2
 // make it prettier with more assets in the background (flora)

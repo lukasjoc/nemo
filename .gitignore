@@ -1,5 +1,4 @@
 nemo.log
-cpuprof*
-memprof*
 *.prof
+profile*.png
 *.pdf

@@ -17,8 +17,6 @@ type rendererConfig struct {
 }
 
 type renderer struct {
-	// TODO: probably need to `recover()` all the errors from the render
-	// workers into a errs channel and report better
 	//mu        sync.RWMutex
 	t         *time.Ticker
 	done      chan bool
@@ -38,8 +36,10 @@ func (r *renderer) stop() {
 	r.t.Stop()
 	go func() { r.done <- true }()
 	go func() { r.stopped <- true }()
-	r.renderStats(time.Now())
-	r.sc.Show()
+	if internal.DebugEnabled {
+		r.renderStats(time.Now())
+		r.sc.Show()
+	}
 }
 
 func (r *renderer) start() {
@@ -73,20 +73,6 @@ func (r *renderer) refresh() {
 	r.sc.Clear()
 }
 
-//func (r *renderer) clean() {
-//	hiddenFish := 0
-//	*layers = slices.DeleteFunc(*layers, func(l *layer) bool {
-//		if l.hidden {
-//			if l.asset.Group == "fish" {
-//				hiddenFish++
-//			}
-//			return true
-//		}
-//		return false
-//	})
-//	*layers = append(*layers, newSwarm(renderW, renderH, hiddenFish)...)
-//}
-
 func (r *renderer) seed() {
 	r.destroy()
 	r.refresh()
@@ -106,7 +92,7 @@ func (r *renderer) seed() {
 var nameRaw = `	
   ___  ___ __ _  ___
  / _ \/ -_)  ' \/ _ \
-/_//_/\__/_/_/_/\___/ 1.0`
+/_//_/\__/_/_/_/\___/ 1.1`
 
 var nameTiles = strings.Split(nameRaw, "\n")
 
@@ -132,7 +118,6 @@ func (r *renderer) renderName() {
 func (r *renderer) renderStats(ts time.Time) {
 	//r.mu.Lock()
 	//defer r.mu.Unlock()
-	// TODO: render stats
 	fishCount := 0
 	bubbleCount := 0
 	for _, l := range r.swarm {
@@ -147,7 +132,7 @@ func (r *renderer) renderStats(ts time.Time) {
 		}
 		bubbleCount++
 	}
-	stats := fmt.Sprintf("TS: %d\nFish: %2d\nBubbles: %2d", ts.Unix(), fishCount, bubbleCount)
+	stats := fmt.Sprintf("TS: %5d\nFish: %5d\nBubbles: %5d", ts.Unix(), fishCount, bubbleCount)
 	statsTiles := strings.Split(stats, "\n")
 	nameX := r.w - len(statsTiles[len(statsTiles)-1]) - (1)
 	nameY := 0 + len(statsTiles) - 1
@@ -236,7 +221,9 @@ func (r *renderer) render() {
 			r.renderName()
 			r.renderSwarm()
 			r.renderBubbles()
-			r.renderStats(ts)
+			if internal.DebugEnabled {
+				r.renderStats(ts)
+			}
 			r.sc.Show()
 		}
 	}

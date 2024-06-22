@@ -106,7 +106,6 @@ func newSwarm(w int, h int, swarmSize int) []*layer {
 }
 
 func bubbleDrawFunc(l *layer, sc tcell.Screen) {
-	_, drawH := sc.Size()
 	(*l).asset = assets.Random("bubble")
 	initialX := l.x
 	initialY := l.y
@@ -129,7 +128,6 @@ func bubbleDrawFunc(l *layer, sc tcell.Screen) {
 		}
 		ty++
 	}
-	internal.Logln("Y:%d h:%d, assetH:%d", l.y, drawH, l.asset.Height)
 	if l.y < -l.asset.Height {
 		(*l).hidden = true
 	}
