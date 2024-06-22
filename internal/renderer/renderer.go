@@ -182,7 +182,6 @@ func (r *Renderer) renderBubbles() {
 			bx = l.X + l.Asset.Width
 		}
 		if bx > 0 && (bx%(r.w/4) == 0) {
-			// TODO: move the layer stuff into here
 			b := layer.NewRandBubble(r.w, r.h)
 			b.X = bx
 			b.Y = l.Y - 1
@@ -216,8 +215,6 @@ func (r *Renderer) renderSwarm() {
 	}
 }
 
-// TODO: i should have a draw loop and a update loop with different
-// tick delays. I think that would make it even smoother.
 func (r *Renderer) render() {
 	for {
 		select {

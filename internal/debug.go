@@ -45,8 +45,8 @@ func DebugEnd() {
 	}
 }
 
-// TODO: convert to use slog
 // NOTE: Remember.. Logging is not cheap!
+// TODO: use slog instead
 func Logln(s string, args ...any) {
 	if !DebugEnabled || ProfEnabled {
 		return
