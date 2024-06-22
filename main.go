@@ -1,69 +1,18 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/gdamore/tcell"
 	"github.com/lukasjoc/nemo/internal"
-)
-
-var (
-	chacMode = flag.Bool("chac", true, "enables character color mode")
-)
-
-const restartDelay = time.Millisecond * 50
-
-var (
-	fgBluePallete = []tcell.Style{
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightBlue),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSkyBlue),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSteelBlue),
-	}
-	fgPallete = append([]tcell.Style{
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorOrchid),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleGoldenrod),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleGreen),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleTurquoise),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPaleVioletRed),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPapayaWhip),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorPeachPuff),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightCoral),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightCyan),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightGoldenrodYellow),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightGray),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightGreen),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightPink),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSalmon),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSeaGreen),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightSlateGray),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLightYellow),
-		tcell.StyleDefault.Dim(true).Bold(true).Foreground(tcell.ColorLimeGreen),
-	}, fgBluePallete...)
-	bodypartColorMask = func(ch rune) tcell.Style {
-		style := tcell.StyleDefault.Dim(true).Bold(true)
-		switch ch {
-		case '\\', '/', '#', '~', '-', '_', '<', '(', ')':
-			return internal.Choose(
-				style.Foreground(tcell.ColorLightYellow),
-				style.Foreground(tcell.ColorLightGreen),
-				style.Foreground(tcell.ColorLightBlue))
-		case 'C', '@', 'o':
-			return style.Foreground(tcell.ColorPaleVioletRed)
-		case ',', '"', '\'', ';', ':', '=':
-			return style.Foreground(tcell.ColorLightCoral)
-		}
-		return style
-	}
+	"github.com/lukasjoc/nemo/internal/renderer"
 )
 
 func main() {
 	internal.DebugStart()
-	flag.Parse()
 
 	// TODO: should the renderer create the screen automatically?
 	sc, err := tcell.NewScreen()
@@ -79,11 +28,11 @@ func main() {
 	sc.SetStyle(tcell.StyleDefault)
 	sc.Clear()
 
-	r := newRenderer(&rendererConfig{sc, 24})
+	r := renderer.New(sc, 18, renderer.DefaultTickDelay)
 	quit := func() {
 		p := recover()
-		r.stop()
-		r.destroy()
+		r.Stop()
+		r.Destroy()
 		sc.Fini()
 		if p != nil {
 			panic(p)
@@ -100,8 +49,8 @@ func main() {
 		os.Exit(1)
 	}()
 
-	r.seed()
-	r.start()
+	r.RandSeed()
+	r.Start()
 
 	initW, initH := sc.Size()
 	for {
@@ -113,7 +62,7 @@ func main() {
 			if nextW == initW && nextH == initH {
 				continue
 			}
-			r.restart()
+			r.Restart()
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape ||
 				ev.Key() == tcell.KeyCtrlC {
@@ -124,13 +73,13 @@ func main() {
 				case 'p':
 					internal.Logln("KEY EVENT %s t:%d, w:%d, h:%d", ev.Name(), ev.When().Unix(), evW, evH)
 					select {
-					case <-r.stopped:
-						r.start()
+					case <-r.Stopped:
+						r.Start()
 					default:
-						r.stop()
+						r.Stop()
 					}
 				case 'r':
-					r.restart()
+					r.Restart()
 				}
 			}
 		}

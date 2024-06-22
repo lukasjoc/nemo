@@ -1,4 +1,4 @@
-package main
+package layer
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"github.com/lukasjoc/nemo/internal/assets"
 )
 
-type layer struct {
+type Layer struct {
 	x          int
 	y          int
 	velo       int
@@ -20,19 +20,36 @@ type layer struct {
 	// NOTE: that the drawFunc doesnt actually update the screen
 	// it just computes the next layer. Its up to the renderer to sync
 	// the changes to the screen. This effectively allows for double buffering.
-	drawFunc func(l *layer, sc tcell.Screen)
+	Draw func(l *Layer, sc tcell.Screen)
 }
 
-func (l layer) String() string {
+func (l *Layer) X() int              { return l.x }
+func (l *Layer) Y() int              { return l.y }
+func (l *Layer) Velo() int           { return l.velo }
+func (l *Layer) Asset() assets.Asset { return l.asset }
+func (l *Layer) SetX(newX int)       { l.x = newX }
+func (l *Layer) SetY(newY int)       { l.x = newY }
+
+func FindHidden(layers []*Layer) []int {
+	idx := []int{}
+	for i, l := range layers {
+		if l != nil && l.hidden {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
+
+func (l Layer) String() string {
 	return fmt.Sprintf("x:%4d y:%4d velo:%4d hidden:%6t group:%6s",
 		l.x, l.y, l.velo, l.hidden, l.asset.Group)
 }
 
-func (l *layer) setDrawFunc(f func(l *layer, sc tcell.Screen)) {
-	l.drawFunc = f
+func (l *Layer) setDraw(f func(l *Layer, sc tcell.Screen)) {
+	l.Draw = f
 }
 
-func fishDrawFunc(l *layer, sc tcell.Screen) {
+func fishDrawFunc(l *Layer, sc tcell.Screen) {
 	drawW, _ := sc.Size()
 	initialX := l.x
 	initialY := l.y
@@ -59,11 +76,7 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 			if unicode.IsSpace(r) {
 				sc.SetContent(tx, ty, r, nil, tcell.StyleDefault)
 			} else {
-				if *chacMode {
-					sc.SetContent(tx, ty, r, nil, bodypartColorMask(r))
-				} else {
-					sc.SetContent(tx, ty, r, nil, l.style)
-				}
+				sc.SetContent(tx, ty, r, nil, bodypartColorMask(r))
 			}
 			tx++
 		}
@@ -76,11 +89,11 @@ func fishDrawFunc(l *layer, sc tcell.Screen) {
 	(*l).x += l.velo
 }
 
-func newRandomFish(w int, h int) *layer {
+func NewRandFish(w int, h int) *Layer {
 	asset := assets.Random("fish")
-	l := layer{
+	l := Layer{
 		velo:       internal.Choose(2, 1, 3),
-		style:      internal.Choose(fgPallete...),
+		style:      internal.Choose(Colors...),
 		asset:      asset,
 		assetIndex: internal.Choose(0, 1),
 	}
@@ -93,19 +106,11 @@ func newRandomFish(w int, h int) *layer {
 		l.y = internal.IntRand(h - asset.Height)
 		l.velo *= -1
 	}
-	l.setDrawFunc(fishDrawFunc)
+	l.setDraw(fishDrawFunc)
 	return &l
 }
 
-func newSwarm(w int, h int, swarmSize int) []*layer {
-	swarm := []*layer{}
-	for i := 0; i < swarmSize; i++ {
-		swarm = append(swarm, newRandomFish(w, h))
-	}
-	return swarm
-}
-
-func bubbleDrawFunc(l *layer, sc tcell.Screen) {
+func bubbleDrawFunc(l *Layer, sc tcell.Screen) {
 	(*l).asset = assets.Random("bubble")
 	initialX := l.x
 	initialY := l.y
@@ -134,16 +139,16 @@ func bubbleDrawFunc(l *layer, sc tcell.Screen) {
 	(*l).y += l.velo
 }
 
-func newRandomBubble(w int, h int) *layer {
+func NewRandBubble(w int, h int) *Layer {
 	asset := assets.Random("bubble")
-	l := layer{
+	l := Layer{
 		velo:       -internal.Choose(3, 2, 4, 5),
-		style:      internal.Choose(fgBluePallete...),
+		style:      internal.Choose(Blues...),
 		asset:      asset,
 		x:          internal.IntRand(w),
 		y:          internal.IntRand(h / 2),
 		assetIndex: 0,
 	}
-	l.setDrawFunc(bubbleDrawFunc)
+	l.setDraw(bubbleDrawFunc)
 	return &l
 }
