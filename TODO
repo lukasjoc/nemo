@@ -1,0 +1,8 @@
+?? V2
+- make it prettier with more assets in the background (flora)
+- Use Quadtree for storing 2d position data better and to determine
+    - the amount of fishies fitting without overlapping automatically.
+    - never spawn fishies overlapping each other
+    - never spawn fishies directly above or behind other fishies
+    - automatically decide swarmSize (based on the current width and height)
+
