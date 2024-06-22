@@ -28,7 +28,7 @@ type Renderer struct {
 	// planned to be dynamic in the future.
 	SwarmSize int
 	// A delay to reduce the render speed with.
-	// As defiend in `render.DefaultTickDelay` the default delay is 120ms.
+	// As defined in `render.DefaultTickDelay` the default delay is 120ms.
 	TickDelay time.Duration
 	// Signals if the renderer has been stopped recently. This can be used
 	// as a hook to stop and start the renderer.
@@ -70,7 +70,7 @@ func (r *Renderer) Restart() {
 		<-r.Stopped
 	}
 	r.refresh()
-	r.RandSeed()
+	r.Reset()
 	r.Start()
 }
 
@@ -90,7 +90,7 @@ func (r *Renderer) refresh() {
 	r.Screen.Clear()
 }
 
-func (r *Renderer) RandSeed() {
+func (r *Renderer) Reset() {
 	r.Destroy()
 	r.refresh()
 	r.mu.Lock()

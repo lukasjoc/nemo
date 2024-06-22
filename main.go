@@ -49,7 +49,7 @@ func main() {
 		os.Exit(1)
 	}()
 
-	r.RandSeed()
+	r.Reset()
 	r.Start()
 
 	initW, initH := sc.Size()
