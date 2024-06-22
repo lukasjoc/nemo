@@ -1,1 +1,4 @@
 nemo.log
+*.prof
+profile*.png
+*.pdf
