@@ -176,16 +176,16 @@ func (r *Renderer) renderBubbles() {
 			continue
 		}
 		bx := 0
-		if l.Velo() < 0 {
-			bx = l.X() + 1
+		if l.Velo < 0 {
+			bx = l.X + 1
 		} else {
-			bx = l.X() + l.Asset().Width
+			bx = l.X + l.Asset.Width
 		}
 		if bx > 0 && (bx%(r.w/4) == 0) {
 			// TODO: move the layer stuff into here
 			b := layer.NewRandBubble(r.w, r.h)
-			b.SetX(bx)
-			b.SetY(l.Y() - 1)
+			b.X = bx
+			b.Y = l.Y - 1
 			r.bubbles[i] = b
 		}
 	}
