@@ -5,3 +5,7 @@
 ```
 > Swarms of fishies
 
+Usage:
+```
+go build -o nemo-fishies
+```
